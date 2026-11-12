@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#080d18">
+  <title>Enviar para ARC</title>
+  <link rel="stylesheet" href="/mobile.css">
+</head>
+<body>
+  <main>
+    <header><span class="brand">ARC</span><span class="product">Image Studio</span></header>
+    <section class="hero">
+      <div class="signal" aria-hidden="true"><span></span><span></span><span></span></div>
+      <p class="eyebrow">Conexão local segura</p>
+      <h1>Enviar arquivos para o PC</h1>
+      <p>Os arquivos seguem pela sua rede Wi-Fi exatamente como estão, sem compressão nem conversão.</p>
+    </section>
+    <section class="card">
+      <input id="files" type="file" multiple>
+      <label class="pick" for="files"><span class="pick-icon">＋</span><strong>Escolher arquivos</strong><small>Fotos, vídeos, documentos ou qualquer outro formato</small></label>
+      <p id="connection" class="connection">Verificando a conexão com o computador…</p>
+    </section>
+    <section id="queue" class="queue" aria-live="polite"></section>
+    <p class="privacy"><span>✓</span> A sessão funciona somente enquanto estiver ativa no ARC. Mantenha esta página aberta até o envio terminar.</p>
+  </main>
+  <script src="/mobile.js"></script>
+</body>
+</html>

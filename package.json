@@ -1,7 +1,7 @@
 {
   "name": "arc-image-studio",
-  "version": "2.6.0",
-  "description": "Compressor, redimensionador, conversor, renomeador e limpador de metadados de imagens em lote.",
+  "version": "2.7.0",
+  "description": "Estúdio local para otimizar, redimensionar, converter, renomear, proteger e transferir arquivos pelo Wi-Fi.",
   "type": "module",
   "main": "src/main.mjs",
   "author": "ARC",
@@ -16,6 +16,7 @@
   "dependencies": {
     "electron-updater": "^6.8.11",
     "exifreader": "^4.52.0",
+    "qrcode": "^1.5.4",
     "sharp": "^0.35.5"
   },
   "devDependencies": {

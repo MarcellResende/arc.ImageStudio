@@ -4,7 +4,7 @@
 
 # ARC Image Studio
 
-Aplicativo para Windows que reúne compressor, resizer, conversor de formatos, renomeador e limpeza de metadados de imagens em lote. Todo o processamento é local: nenhuma imagem é enviada para a internet.
+Aplicativo para Windows que reúne compressor, resizer, conversor de formatos, renomeador, limpeza de metadados e transferência de arquivos pela rede local. Todo o processamento é local: nenhuma imagem é enviada para a internet.
 
 ## Como usar
 
@@ -60,6 +60,16 @@ O diagnóstico de IA utiliza informações presentes no próprio arquivo, como C
 
 Se EXIF, GPS ou modelo da câmera já não existirem, o painel explica isso claramente. Serviços como WhatsApp e redes sociais podem reprocessar a imagem e apagar esses dados antes do download; o ARC Image Studio consegue ler e limpar o que ainda existe, mas não reconstruir informações já removidas. Para tentar preservar o arquivo original durante uma transferência, envie a foto como documento/arquivo.
 
+### Receber arquivos pelo Wi-Fi
+
+1. Conecte o computador e o celular à mesma rede Wi-Fi.
+2. Abra **Receber** e escolha a pasta de destino.
+3. Clique em **Iniciar recebimento** e escaneie o QR Code com a câmera do celular.
+4. Na página aberta no celular, escolha fotos, vídeos, documentos ou outros arquivos e aguarde a conclusão.
+5. Encerre a sessão quando terminar.
+
+O envio copia os bytes originais diretamente para o disco, sem recompressão, mudança de formato ou upload para a internet. Cada sessão usa um endereço com chave aleatória, aceita conexões apenas da rede local e deixa de funcionar assim que for encerrada. O Windows pode solicitar autorização de firewall na primeira utilização; permita o acesso em redes privadas para que o celular encontre o computador.
+
 Cada execução que gera novos arquivos cria uma subpasta exclusiva, como `Lote 2026-11-05 14-30-12`, `Redimensionado 2026-11-05 14-30-12`, `Convertido 2026-11-05 14-30-12`, `Renomeado 2026-11-05 14-30-12` ou `Metadados removidos 2026-11-05 14-30-12`. Ao terminar, o app mostra o caminho completo e oferece um botão para abrir a pasta.
 
 ## Recursos
@@ -82,6 +92,8 @@ Cada execução que gera novos arquivos cria uma subpasta exclusiva, como `Lote 
 - Opção de preservar o perfil de cores durante a limpeza de metadados.
 - Alta qualidade para JPG e PNG.
 - Interface separada em abas, preservando o lote de cada ferramenta.
+- Recebimento de qualquer tipo de arquivo do celular pelo Wi-Fi, com QR Code, progresso real e verificação SHA-256.
+- Transferência binária sem recompressão, nomes preservados e proteção automática contra sobrescrita.
 - Funcionamento offline e originais protegidos.
 - Atualizações pelo próprio aplicativo: ele consulta os releases públicos do GitHub e instala uma versão nova com um clique.
 
@@ -108,8 +120,8 @@ O instalador será criado na pasta `release`.
 O aplicativo procura releases públicos em `MarcellResende/arc.ImageStudio`. Para publicar corretamente, atualize o campo `version` do `package.json`, faça o commit e envie uma tag com a mesma versão:
 
 ```powershell
-git tag v2.6.0
-git push origin v2.6.0
+git tag v2.7.0
+git push origin v2.7.0
 ```
 
 O workflow do GitHub executa os testes, cria o instalador NSIS e publica automaticamente o `.exe`, o `.blockmap` e o `latest.yml` no release. Esses três arquivos precisam ser gerados juntos; não substitua apenas o instalador manualmente.

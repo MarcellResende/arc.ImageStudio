@@ -18,6 +18,10 @@ const metadataCleaner = {
   results: new Map(), analysis: new Map(), preserveColorProfile: true, analyzing: false,
   selectedItemId: '', groupFilter: 'all', search: ''
 };
+const receiver = {
+  running: false, destinationRoot: '', url: '', qrDataUrl: '', addresses: [],
+  receivedCount: 0, receivedBytes: 0, activeUploads: 0, items: new Map()
+};
 
 const presets = {
   instagram: [
@@ -167,7 +171,14 @@ const updateElements = {
   kicker: $('#update-notice-kicker'), title: $('#update-notice-title'), detail: $('#update-notice-detail'),
   progress: $('#update-progress'), progressBar: $('#update-progress-bar'), action: $('#update-action'), dismiss: $('#update-dismiss')
 };
-let updateUiState = { status: 'idle', currentVersion: '2.6.0', availableVersion: '', percent: 0, showNotice: false };
+const receiverElements = {
+  statusDot: $('#receiver-status-dot'), statusLabel: $('#receiver-status-label'), outputPath: $('#receiver-output-path'),
+  selectOutput: $('#receiver-select-output'), start: $('#receiver-start'), stop: $('#receiver-stop'), openOutput: $('#receiver-open-output'),
+  idle: $('#receiver-idle'), active: $('#receiver-active'), qr: $('#receiver-qr'), url: $('#receiver-url'), copyUrl: $('#receiver-copy-url'),
+  networkLabel: $('#receiver-network-label'), fileCount: $('#receiver-file-count'), byteCount: $('#receiver-byte-count'),
+  feedSubtitle: $('#receiver-feed-subtitle'), fileList: $('#receiver-file-list')
+};
+let updateUiState = { status: 'idle', currentVersion: '2.7.0', availableVersion: '', percent: 0, showNotice: false };
 let dismissedUpdateStatus = '';
 
 function renderUpdateState(state) {
@@ -253,6 +264,117 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 ** index)).toLocaleString('pt-BR', { maximumFractionDigits: index ? 1 : 0 })} ${units[index]}`;
 }
 
+function receiverItemMarkup(item) {
+  const total = Math.max(0, Number(item.size) || 0);
+  const received = item.status === 'completed' ? total : Math.max(0, Number(item.receivedBytes) || 0);
+  const percent = total ? Math.min(100, Math.round(received / total * 100)) : item.status === 'completed' ? 100 : 0;
+  const status = item.status === 'completed'
+    ? 'Recebido sem alterações'
+    : item.status === 'error'
+      ? item.error || 'Transferência interrompida'
+      : `Recebendo ${percent}%`;
+  const icon = item.status === 'completed' ? 'i-check' : item.status === 'error' ? 'i-alert' : 'i-download';
+  return `<article class="receiver-file ${item.status || 'receiving'}" title="${escapeHtml(item.name)}">
+    <span class="receiver-file-icon"><svg class="i i-sm"><use href="#${icon}"/></svg></span>
+    <span class="receiver-file-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(status)} · ${formatBytes(total)}</small></span>
+    <span class="receiver-file-percent num">${item.status === 'completed' ? '100%' : item.status === 'error' ? 'Erro' : `${percent}%`}</span>
+    <span class="receiver-file-track"><i style="width:${percent}%"></i></span>
+  </article>`;
+}
+
+function renderReceiverFiles() {
+  const items = [...receiver.items.values()].slice(-100).reverse();
+  if (!items.length) {
+    receiverElements.fileList.innerHTML = '<div class="receiver-feed-empty"><svg class="i i-lg"><use href="#i-download"/></svg><strong>Pronto para receber</strong><span>Os arquivos aparecerão aqui durante a transferência.</span></div>';
+    receiverElements.feedSubtitle.textContent = 'Aguardando o primeiro arquivo…';
+    return;
+  }
+  receiverElements.fileList.innerHTML = items.map(receiverItemMarkup).join('');
+  const active = items.filter((item) => item.status === 'receiving').length;
+  receiverElements.feedSubtitle.textContent = active
+    ? `${active} ${active === 1 ? 'transferência em andamento' : 'transferências em andamento'}`
+    : `${receiver.receivedCount} ${receiver.receivedCount === 1 ? 'arquivo recebido' : 'arquivos recebidos'} nesta sessão`;
+}
+
+function renderReceiverState(state = {}) {
+  Object.assign(receiver, state);
+  if (Array.isArray(state.received)) {
+    for (const item of state.received) receiver.items.set(item.id, { ...item, status: 'completed', receivedBytes: item.size });
+  }
+  const running = Boolean(receiver.running);
+  receiverElements.statusDot.classList.toggle('active', running);
+  receiverElements.statusLabel.textContent = running ? 'Pronto para receber' : 'Sessão desligada';
+  receiverElements.outputPath.value = receiver.destinationRoot || '';
+  receiverElements.selectOutput.disabled = running;
+  receiverElements.start.classList.toggle('hidden', running);
+  receiverElements.stop.classList.toggle('hidden', !running);
+  receiverElements.idle.classList.toggle('hidden', running);
+  receiverElements.active.classList.toggle('hidden', !running);
+  receiverElements.fileCount.textContent = String(receiver.receivedCount || 0);
+  receiverElements.byteCount.textContent = formatBytes(receiver.receivedBytes || 0);
+  receiverElements.url.textContent = receiver.url || '';
+  if (receiver.qrDataUrl) receiverElements.qr.src = receiver.qrDataUrl;
+  const network = receiver.addresses?.[0];
+  receiverElements.networkLabel.textContent = network ? `Rede local · ${network.address}:${receiver.port}` : 'Disponível nesta rede local';
+  renderReceiverFiles();
+}
+
+async function startReceiverSession() {
+  receiverElements.start.disabled = true;
+  receiverElements.start.querySelector('span').textContent = 'Preparando conexão…';
+  try {
+    renderReceiverState(await window.arc.startReceiver({ destinationRoot: receiver.destinationRoot }));
+  } catch (error) {
+    showPasteToast(error?.message || 'Não foi possível iniciar. Confira a conexão Wi-Fi.', 'error');
+  } finally {
+    receiverElements.start.disabled = false;
+    receiverElements.start.querySelector('span').textContent = 'Iniciar recebimento';
+  }
+}
+
+async function stopReceiverSession() {
+  receiverElements.stop.disabled = true;
+  receiverElements.stop.querySelector('span').textContent = 'Encerrando…';
+  try {
+    renderReceiverState(await window.arc.stopReceiver());
+  } catch (error) {
+    showPasteToast(error?.message || 'Não foi possível encerrar a sessão.', 'error');
+  } finally {
+    receiverElements.stop.disabled = false;
+    receiverElements.stop.querySelector('span').textContent = 'Encerrar sessão';
+  }
+}
+
+function handleReceiverEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  if (event.type === 'session-started') {
+    receiver.items.clear();
+    renderReceiverState(event.state);
+    return;
+  }
+  if (event.type === 'session-stopped') {
+    renderReceiverState(event.state);
+    return;
+  }
+  if (event.type === 'upload-started') {
+    receiver.activeUploads += 1;
+    receiver.items.set(event.id, { ...event, status: 'receiving', receivedBytes: 0 });
+  } else if (event.type === 'upload-progress') {
+    receiver.items.set(event.id, { ...(receiver.items.get(event.id) || event), ...event, status: 'receiving' });
+  } else if (event.type === 'upload-completed') {
+    receiver.activeUploads = Math.max(0, receiver.activeUploads - 1);
+    receiver.receivedCount += 1;
+    receiver.receivedBytes += event.item.size;
+    receiver.items.set(event.item.id, { ...event.item, status: 'completed', receivedBytes: event.item.size });
+    receiverElements.fileCount.textContent = String(receiver.receivedCount);
+    receiverElements.byteCount.textContent = formatBytes(receiver.receivedBytes);
+  } else if (event.type === 'upload-error') {
+    receiver.activeUploads = Math.max(0, receiver.activeUploads - 1);
+    receiver.items.set(event.id, { ...(receiver.items.get(event.id) || event), ...event, status: 'error' });
+  }
+  renderReceiverFiles();
+}
+
 function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
@@ -326,8 +448,9 @@ async function addPastedItems(tool, items) {
 
 async function handleClipboardPaste(event) {
   if (pasteTargetIsEditable(event.target) || pastingClipboard) return;
-  event.preventDefault();
   const tool = activeTool();
+  if (tool === 'receiver') return;
+  event.preventDefault();
   const states = { compressor, resizer, converter, renamer, metadata: metadataCleaner };
   const labels = { compressor: 'Compressor', resizer: 'Resizer', converter: 'Conversor', renamer: 'Renomeador', metadata: 'Metadados' };
   const state = states[tool];
@@ -1398,7 +1521,7 @@ toolTabs.forEach((button, index) => {
     }
   });
 });
-// Ctrl/Cmd + 1…5 jump between tools
+// Ctrl/Cmd + 1…6 jump between tools
 document.addEventListener('keydown', (event) => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
   const index = Number(event.key) - 1;
@@ -1495,6 +1618,7 @@ window.arc.onConversionStarted(({ id }) => { if (!converter.completed) { convert
 window.arc.onRenameProgress((progress) => { renamer.results.set(progress.id, progress); const done = progress.index + 1; renamerElements.progressBar.style.width = `${done / progress.total * 100}%`; renamerElements.progressText.textContent = `${done} de ${progress.total}`; if (!renamer.completed) queueRender(renderRenamerQueue); });
 window.arc.onRenameStarted(({ id }) => { if (!renamer.completed) { renamer.results.set(id, { working: true }); queueRender(renderRenamerQueue); } });
 window.arc.onUpdateState(renderUpdateState);
+window.arc.onReceiverEvent(handleReceiverEvent);
 
 [compressorElements.start, resizeElements.start, converterElements.start, renamerElements.start, metadataElements.start]
   .forEach((button) => setActionState(button, 'idle'));
@@ -1514,8 +1638,20 @@ updateElements.dismiss.addEventListener('click', () => {
   updateElements.notice.classList.add('hidden');
 });
 
+receiverElements.start.addEventListener('click', startReceiverSession);
+receiverElements.stop.addEventListener('click', stopReceiverSession);
+receiverElements.selectOutput.addEventListener('click', async () => {
+  const outputPath = await window.arc.selectReceiverOutput();
+  if (outputPath) { receiver.destinationRoot = outputPath; receiverElements.outputPath.value = outputPath; }
+});
+receiverElements.openOutput.addEventListener('click', () => window.arc.showOutput(receiver.destinationRoot));
+receiverElements.copyUrl.addEventListener('click', async () => {
+  if (await window.arc.copyReceiverUrl()) showPasteToast('Endereço copiado.');
+});
+
 window.arc.defaultOutput().then((outputPath) => { compressor.outputRoot = outputPath; resizer.outputRoot = outputPath; converter.outputRoot = outputPath; renamer.outputRoot = outputPath; metadataCleaner.outputRoot = outputPath; compressorElements.outputPath.value = outputPath; resizeElements.outputPath.value = outputPath; converterElements.outputPath.value = outputPath; renamerElements.outputPath.value = outputPath; metadataElements.outputPath.value = outputPath; });
 window.arc.getUpdateState().then(renderUpdateState);
+window.arc.getReceiverState().then(renderReceiverState);
 metadataElements.colorProfile.classList.add('active');
 converterElements.colorProfile.classList.add('active');
 renderPresets(); updateResizeTarget(); updateConverterControls(); updateRenamerControls(); refreshRenamePreview(); updateCompressorSummary();

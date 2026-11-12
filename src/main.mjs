@@ -5,12 +5,14 @@ import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import updaterPackage from 'electron-updater';
+import QRCode from 'qrcode';
 import { createBatchDirectory, isSupportedImage, optimizeImage } from './optimizer.mjs';
 import { imageMetadata, imagePreview, resizeImage, resizePreview } from './resizer.mjs';
 import { cleanMetadataImage, inspectImageMetadata } from './metadata-cleaner.mjs';
 import { convertImage, conversionPreview, isSupportedConversionInput } from './converter.mjs';
 import { saveClipboardImageItems } from './clipboard-image.mjs';
 import { buildRenamePreview, isSupportedRenameInput, renameBatch } from './renamer.mjs';
+import { WifiReceiver } from './wifi-receiver.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = updaterPackage;
@@ -27,6 +29,28 @@ let updateState = {
 let manualUpdateCheck = false;
 let installAfterDownload = false;
 let clipboardSessionDirectory = '';
+let receiverQrDataUrl = '';
+
+const wifiReceiver = new WifiReceiver({
+  onEvent: (data) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('receiver:event', data);
+    }
+  }
+});
+
+function defaultReceiverOutput() {
+  return path.join(app.getPath('pictures'), 'ARC Image Studio', 'Recebidos');
+}
+
+function publicReceiverState() {
+  const state = wifiReceiver.publicState();
+  return {
+    ...state,
+    destinationRoot: state.destinationRoot || defaultReceiverOutput(),
+    qrDataUrl: state.running ? receiverQrDataUrl : ''
+  };
+}
 
 function publicUpdateState() {
   return { ...updateState };
@@ -325,6 +349,40 @@ ipcMain.handle('output:default', () => path.join(app.getPath('pictures'), 'ARC I
 
 ipcMain.handle('output:show', async (_event, outputPath) => {
   if (typeof outputPath === 'string' && outputPath) await shell.openPath(outputPath);
+});
+
+ipcMain.handle('receiver:get-state', () => publicReceiverState());
+ipcMain.handle('receiver:default-output', () => defaultReceiverOutput());
+ipcMain.handle('receiver:select-output', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Escolha onde salvar os arquivos recebidos',
+    defaultPath: wifiReceiver.destinationRoot || defaultReceiverOutput(),
+    properties: ['openDirectory', 'createDirectory']
+  });
+  return result.canceled ? null : result.filePaths[0];
+});
+ipcMain.handle('receiver:start', async (_event, options = {}) => {
+  const destinationRoot = typeof options.destinationRoot === 'string' && options.destinationRoot.trim()
+    ? options.destinationRoot
+    : defaultReceiverOutput();
+  const state = await wifiReceiver.start({ destinationRoot });
+  receiverQrDataUrl = await QRCode.toDataURL(state.url, {
+    errorCorrectionLevel: 'M',
+    margin: 2,
+    width: 420,
+    color: { dark: '#0A1322FF', light: '#F5F7FCFF' }
+  });
+  return publicReceiverState();
+});
+ipcMain.handle('receiver:stop', async () => {
+  await wifiReceiver.stop();
+  receiverQrDataUrl = '';
+  return publicReceiverState();
+});
+ipcMain.handle('receiver:copy-url', () => {
+  const { url } = wifiReceiver.publicState();
+  if (url) clipboard.writeText(url);
+  return Boolean(url);
 });
 
 ipcMain.handle('update:get-state', () => publicUpdateState());
@@ -649,6 +707,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('will-quit', () => {
+  wifiReceiver.stop().catch(() => {});
   if (!clipboardSessionDirectory) return;
   const clipboardRoot = path.resolve(app.getPath('temp'), 'ARC Image Studio', 'clipboard');
   const sessionPath = path.resolve(clipboardSessionDirectory);

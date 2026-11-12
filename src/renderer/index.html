@@ -42,6 +42,9 @@
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3M7 10l5 5 5-5M5 21h14"/></symbol>
     <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
+    <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/></symbol>
+    <symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-qr" viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M16 16h3v3M21 16v5M16 21h1"/></symbol>
   </svg>
 
   <div class="app">
@@ -55,9 +58,10 @@
         <button class="tool-tab seg-item" role="tab" id="tab-converter" data-tool="converter" aria-selected="false" aria-controls="converter-view" title="Conversor — trocar de formato"><svg class="i i-sm"><use href="#i-convert"/></svg><span>Conversor</span></button>
         <button class="tool-tab seg-item" role="tab" id="tab-renamer" data-tool="renamer" aria-selected="false" aria-controls="renamer-view" title="Renomeador — nomes em lote"><svg class="i i-sm"><use href="#i-rename"/></svg><span>Renomeador</span></button>
         <button class="tool-tab seg-item" role="tab" id="tab-metadata" data-tool="metadata" aria-selected="false" aria-controls="metadata-view" title="Metadados — proteger a privacidade"><svg class="i i-sm"><use href="#i-shield"/></svg><span>Metadados</span></button>
+        <button class="tool-tab seg-item" role="tab" id="tab-receiver" data-tool="receiver" aria-selected="false" aria-controls="receiver-view" title="Receber — transferir arquivos pelo Wi-Fi"><svg class="i i-sm"><use href="#i-wifi"/></svg><span>Receber</span></button>
       </nav>
 
-      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.6.0</span></button></div>
+      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.7.0</span></button></div>
     </header>
 
     <aside id="update-notice" class="update-notice glass hidden" role="status" aria-live="polite">
@@ -390,6 +394,68 @@
         <label id="metadata-color-profile" class="switch-row dock-switch"><span class="switch-copy"><strong>Preservar perfil de cores</strong><small>ICC mantido · EXIF e rastros de IA removidos</small></span><input id="metadata-color-profile-input" type="checkbox" checked><span class="switch"></span></label>
         <button id="metadata-start" class="btn btn-primary btn-lg action" disabled><span>Limpar metadados</span><svg class="i i-sm action-arrow"><use href="#i-arrow-right"/></svg></button>
       </footer>
+    </section>
+
+    <!-- ═════════ Receber arquivos ═════════ -->
+    <section id="receiver-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-receiver">
+      <header class="tool-head"><h1>Receber arquivos</h1><p>Transfira do celular pela mesma rede Wi-Fi, com os bytes e a qualidade original preservados.</p></header>
+      <div class="tool-body single receiver-body">
+        <div class="receiver-workspace pane">
+          <aside class="receiver-setup">
+            <div class="receiver-status-heading">
+              <span id="receiver-status-dot" class="receiver-status-dot"></span>
+              <div><small>Status da conexão</small><strong id="receiver-status-label">Sessão desligada</strong></div>
+            </div>
+
+            <div class="receiver-destination">
+              <span class="dest-icon"><svg class="i i-sm"><use href="#i-folder"/></svg></span>
+              <div class="dest-copy"><label for="receiver-output-path">Salvar arquivos em</label><input id="receiver-output-path" type="text" readonly></div>
+              <button id="receiver-select-output" class="btn btn-sm" type="button">Alterar</button>
+            </div>
+
+            <button id="receiver-start" class="btn btn-primary btn-lg receiver-main-action" type="button"><svg class="i i-sm"><use href="#i-wifi"/></svg><span>Iniciar recebimento</span></button>
+            <button id="receiver-stop" class="btn btn-danger receiver-main-action hidden" type="button"><svg class="i i-sm"><use href="#i-x"/></svg><span>Encerrar sessão</span></button>
+
+            <div class="callout receiver-security"><svg class="i"><use href="#i-shield"/></svg><span><strong>Transferência direta e privada</strong><br><small>Nada é enviado à nuvem. O endereço usa uma chave temporária e deixa de funcionar quando você encerra a sessão.</small></span></div>
+
+            <div class="receiver-session-stats">
+              <div><strong id="receiver-file-count" class="num">0</strong><span>Arquivos recebidos</span></div>
+              <div><strong id="receiver-byte-count" class="num">0 B</strong><span>Total transferido</span></div>
+            </div>
+            <button id="receiver-open-output" class="btn" type="button"><svg class="i i-sm"><use href="#i-folder-open"/></svg>Abrir pasta</button>
+          </aside>
+
+          <main class="receiver-content">
+            <div id="receiver-idle" class="receiver-idle">
+              <div class="receiver-orbit" aria-hidden="true"><span class="receiver-phone"><svg class="i i-lg"><use href="#i-smartphone"/></svg></span><span class="receiver-wave wave-one"></span><span class="receiver-wave wave-two"></span></div>
+              <span class="chip chip-accent">100% original</span>
+              <h2>Seu celular e o PC, conectados diretamente</h2>
+              <p>Inicie uma sessão para criar um QR Code. Depois, basta apontar a câmera do celular e escolher os arquivos.</p>
+              <ol class="receiver-idle-steps"><li>Use a mesma rede Wi-Fi</li><li>Escaneie o QR Code</li><li>Escolha e envie os arquivos</li></ol>
+            </div>
+
+            <div id="receiver-active" class="receiver-active hidden">
+              <section class="receiver-connect-card">
+                <div class="receiver-qr-wrap"><img id="receiver-qr" alt="QR Code para abrir o envio no celular"></div>
+                <div class="receiver-connect-copy">
+                  <span class="receiver-live"><i></i>Sessão ativa</span>
+                  <h2>Escaneie com a câmera do celular</h2>
+                  <p>O celular abrirá uma página local para selecionar e enviar os arquivos. Mantenha o ARC aberto até concluir.</p>
+                  <div class="receiver-url-row"><code id="receiver-url"></code><button id="receiver-copy-url" class="btn btn-sm btn-icon" type="button" title="Copiar endereço" aria-label="Copiar endereço"><svg class="i i-xs"><use href="#i-copy"/></svg></button></div>
+                  <div class="receiver-network-note"><svg class="i i-sm"><use href="#i-wifi"/></svg><span id="receiver-network-label">Disponível nesta rede local</span></div>
+                </div>
+              </section>
+
+              <section class="receiver-feed">
+                <div class="pane-head"><div class="pane-title"><h2>Atividade da sessão</h2><p id="receiver-feed-subtitle">Aguardando o primeiro arquivo…</p></div></div>
+                <div id="receiver-file-list" class="receiver-file-list" aria-live="polite">
+                  <div id="receiver-feed-empty" class="receiver-feed-empty"><svg class="i i-lg"><use href="#i-download"/></svg><strong>Pronto para receber</strong><span>Os arquivos aparecerão aqui durante a transferência.</span></div>
+                </div>
+              </section>
+            </div>
+          </main>
+        </div>
+      </div>
     </section>
   </div>
   <script src="app.js"></script>
