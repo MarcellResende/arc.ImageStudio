@@ -182,6 +182,7 @@ export class WifiSender {
     if (!server) return this.publicState();
     this.server = null;
     for (const socket of this.sockets) socket.destroy();
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(() => resolve())).catch(() => {});
     this.sockets.clear();
     this.token = '';
@@ -295,7 +296,7 @@ export class WifiSender {
     if (!availableFiles.length) return sendJson(response, 404, { ok: false, error: 'Não há arquivos disponíveis nesta sessão.' });
 
     const id = randomBytes(10).toString('hex');
-    const archiveName = 'ARC-Image-Studio-arquivos.zip';
+    const archiveName = 'arc.Studio-arquivos.zip';
     const totalSourceBytes = availableFiles.reduce((total, file) => total + file.size, 0);
     this.activeDownloads += 1;
     this.onEvent({ type: 'download-started', id, name: archiveName, size: totalSourceBytes, fileSize: totalSourceBytes, sourceAddress });

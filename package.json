@@ -1,7 +1,7 @@
 {
-  "name": "arc-image-studio",
-  "version": "2.8.0",
-  "description": "Estúdio local para otimizar, redimensionar, converter, renomear, proteger e transferir arquivos pelo Wi-Fi.",
+  "name": "arc-studio",
+  "version": "2.9.0",
+  "description": "arc.Studio — plataforma local de ferramentas: imagens, transferência de arquivos pelo Wi-Fi e mais categorias em breve.",
   "type": "module",
   "main": "src/main.mjs",
   "author": "ARC",
@@ -27,7 +27,7 @@
   },
   "build": {
     "appId": "com.arc.imagestudio",
-    "productName": "ARC Image Studio",
+    "productName": "arc.Studio",
     "asar": true,
     "asarUnpack": [
       "vendor/**",
@@ -45,7 +45,7 @@
       "output": "release",
       "buildResources": "build"
     },
-    "artifactName": "ARC-Image-Studio-Setup-${version}.${ext}",
+    "artifactName": "arc.Studio-Setup-${version}.${ext}",
     "publish": [
       {
         "provider": "github",
@@ -71,7 +71,7 @@
       "deleteAppDataOnUninstall": false,
       "createDesktopShortcut": true,
       "createStartMenuShortcut": true,
-      "shortcutName": "ARC Image Studio"
+      "shortcutName": "arc.Studio"
     }
   }
 }

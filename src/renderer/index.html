@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:">
-  <title>ARC Image Studio</title>
+  <title>arc.Studio</title>
   <link rel="stylesheet" href="styles/tokens.css">
   <link rel="stylesheet" href="styles/base.css">
   <link rel="stylesheet" href="styles/components.css">
@@ -41,6 +41,16 @@
     <symbol id="i-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14M12 5l7 7-7 7"/></symbol>
     <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 15V3M7 10l5 5 5-5M5 21h14"/></symbol>
     <symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/></symbol>
+    <symbol id="i-chevron" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+    <symbol id="i-video" viewBox="0 0 24 24"><path d="m16 13 5.223 3.482a.5.5 0 0 0 .777-.416V7.87a.5.5 0 0 0-.752-.432L16 10.5"/><rect x="2" y="6" width="14" height="12" rx="2"/></symbol>
+    <symbol id="i-audio" viewBox="0 0 24 24"><path d="M2 10v3M6 6v11M10 3v18M14 8v7M18 5v13M22 10v3"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></symbol>
+    <symbol id="i-file-text" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4M10 9H8M16 13H8M16 17H8"/></symbol>
+    <symbol id="i-merge" viewBox="0 0 24 24"><path d="m8 6 4-4 4 4M12 2v10.3a4 4 0 0 1-1.172 2.872L4 22M20 22l-5-5"/></symbol>
+    <symbol id="i-split" viewBox="0 0 24 24"><path d="M16 3h5v5M8 3H3v5M12 22v-8.3a4 4 0 0 0-1.172-2.872L3 3M15 9l6-6"/></symbol>
+    <symbol id="i-tag" viewBox="0 0 24 24"><path d="M12.586 2.586A2 2 0 0 0 11.172 2H4a2 2 0 0 0-2 2v7.172a2 2 0 0 0 .586 1.414l8.704 8.704a2.426 2.426 0 0 0 3.42 0l6.58-6.58a2.426 2.426 0 0 0 0-3.42z"/><circle cx="7.5" cy="7.5" r=".5" fill="currentColor"/></symbol>
+    <symbol id="i-hash" viewBox="0 0 24 24"><path d="M4 9h16M4 15h16M10 3 8 21M16 3l-2 18"/></symbol>
+    <symbol id="i-ruler" viewBox="0 0 24 24"><path d="M21.3 15.3a2.4 2.4 0 0 1 0 3.4l-2.6 2.6a2.4 2.4 0 0 1-3.4 0L2.7 8.7a2.41 2.41 0 0 1 0-3.4l2.6-2.6a2.41 2.41 0 0 1 3.4 0Z"/><path d="m14.5 12.5 2-2M11.5 9.5l2-2M8.5 6.5l2-2M17.5 15.5l2-2"/></symbol>
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
     <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/></symbol>
     <symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
@@ -50,21 +60,20 @@
 
   <div class="app">
     <header class="toolbar">
-      <div class="toolbar-brand"><img src="assets/logos/logo.png" alt="ARC" class="brand-logo"><span class="brand-sub">Image Studio</span></div>
+      <div class="toolbar-brand"><img src="assets/logos/logo.png" alt="ARC" class="brand-logo"><span class="brand-sub">Studio</span></div>
 
-      <nav class="seg seg-nav glass" role="tablist" aria-label="Ferramentas">
-        <span class="seg-thumb" aria-hidden="true"></span>
-        <button class="tool-tab seg-item active" role="tab" id="tab-compressor" data-tool="compressor" aria-selected="true" aria-controls="compressor-view" title="Compressor — reduzir o peso dos arquivos"><svg class="i i-sm"><use href="#i-compress"/></svg><span>Compressor</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-resizer" data-tool="resizer" aria-selected="false" aria-controls="resizer-view" title="Resizer — alterar dimensões"><svg class="i i-sm"><use href="#i-resize"/></svg><span>Resizer</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-converter" data-tool="converter" aria-selected="false" aria-controls="converter-view" title="Conversor — trocar de formato"><svg class="i i-sm"><use href="#i-convert"/></svg><span>Conversor</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-renamer" data-tool="renamer" aria-selected="false" aria-controls="renamer-view" title="Renomeador — nomes em lote"><svg class="i i-sm"><use href="#i-rename"/></svg><span>Renomeador</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-metadata" data-tool="metadata" aria-selected="false" aria-controls="metadata-view" title="Metadados — proteger a privacidade"><svg class="i i-sm"><use href="#i-shield"/></svg><span>Metadados</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-receiver" data-tool="receiver" aria-selected="false" aria-controls="receiver-view" title="Receber — transferir arquivos pelo Wi-Fi"><svg class="i i-sm"><use href="#i-wifi"/></svg><span>Receber</span></button>
-        <button class="tool-tab seg-item" role="tab" id="tab-sender" data-tool="sender" aria-selected="false" aria-controls="sender-view" title="Enviar — compartilhar arquivos pela rede local"><svg class="i i-sm"><use href="#i-send"/></svg><span>Enviar</span></button>
-      </nav>
+      <nav id="nav-categories" class="seg seg-nav glass" aria-label="Categorias"></nav>
 
-      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.8.0</span></button></div>
+      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.9.0</span></button></div>
     </header>
+
+    <header class="tool-head" id="tool-head">
+      <h1><span id="tool-crumb" class="crumb"></span><span class="crumb-sep" aria-hidden="true">/</span><span id="tool-title"></span></h1>
+      <p id="tool-desc"></p>
+      <nav id="tool-strip" class="seg tool-strip hidden" role="tablist" aria-label="Ferramentas"></nav>
+    </header>
+
+    <div id="nav-menu" class="nav-menu glass hidden" role="menu"></div>
 
     <aside id="update-notice" class="update-notice glass hidden" role="status" aria-live="polite">
       <div class="update-notice-icon"><svg class="i"><use href="#i-download"/></svg></div>
@@ -74,8 +83,7 @@
     </aside>
 
     <!-- ═════════ Compressor ═════════ -->
-    <section id="compressor-view" class="tool-view" role="tabpanel" aria-labelledby="tab-compressor">
-      <header class="tool-head"><h1>Compressor</h1><p>Reduz o peso de JPG e PNG em lote, sem enviar nada para a internet.</p></header>
+    <section id="compressor-view" class="tool-view" role="tabpanel">
       <div class="tool-body">
         <div class="tool-main pane">
           <div id="drop-zone" class="drop-zone">
@@ -127,8 +135,7 @@
     </section>
 
     <!-- ═════════ Resizer ═════════ -->
-    <section id="resizer-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-resizer">
-      <header class="tool-head"><h1>Resizer</h1><p>Redimensione por pixels, porcentagem ou formatos prontos para redes sociais.</p></header>
+    <section id="resizer-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body">
         <div class="tool-main pane">
           <div id="resize-drop-zone" class="drop-zone">
@@ -214,8 +221,7 @@
     </section>
 
     <!-- ═════════ Conversor ═════════ -->
-    <section id="converter-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-converter">
-      <header class="tool-head"><h1>Conversor</h1><p>Converta para JPG, PNG, WebP ou AVIF com controle de qualidade e transparência.</p></header>
+    <section id="converter-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body">
         <div class="tool-main pane">
           <div id="converter-drop-zone" class="drop-zone">
@@ -282,8 +288,7 @@
     </section>
 
     <!-- ═════════ Renomeador ═════════ -->
-    <section id="renamer-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-renamer">
-      <header class="tool-head"><h1>Renomeador</h1><p>Aplique padrões, numeração e substituições, vendo o resultado antes de salvar.</p></header>
+    <section id="renamer-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body">
         <div class="tool-main pane">
           <div id="renamer-drop-zone" class="drop-zone">
@@ -346,8 +351,7 @@
     </section>
 
     <!-- ═════════ Metadados ═════════ -->
-    <section id="metadata-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-metadata">
-      <header class="tool-head"><h1>Metadados</h1><p>Inspecione e remova EXIF, localização e rastros de IA sem alterar a imagem.</p></header>
+    <section id="metadata-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body single">
         <div class="tool-main pane">
           <div id="metadata-drop-zone" class="drop-zone">
@@ -399,8 +403,7 @@
     </section>
 
     <!-- ═════════ Receber arquivos ═════════ -->
-    <section id="receiver-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-receiver">
-      <header class="tool-head"><h1>Receber arquivos</h1><p>Transfira do celular pela mesma rede Wi-Fi, com os bytes e a qualidade original preservados.</p></header>
+    <section id="receiver-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body single receiver-body">
         <div class="receiver-workspace pane">
           <aside class="receiver-setup">
@@ -461,8 +464,7 @@
     </section>
 
     <!-- ═════════ Enviar arquivos ═════════ -->
-    <section id="sender-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-sender">
-      <header class="tool-head"><h1>Enviar arquivos</h1><p>Compartilhe do PC para outro dispositivo pela rede local, sem reduzir a qualidade ou alterar os bytes.</p></header>
+    <section id="sender-view" class="tool-view hidden" role="tabpanel">
       <div class="tool-body single receiver-body">
         <div class="receiver-workspace pane">
           <aside class="receiver-setup">
@@ -523,7 +525,145 @@
         </div>
       </div>
     </section>
+    <!-- ═════════ Prompt Gen ═════════ -->
+    <section id="prompt-gen-view" class="tool-view hidden" role="tabpanel">
+      <div class="tool-body">
+        <div class="tool-main pane pg-main" data-pane="form">
+          <div class="pg-tabs seg seg-block" role="group" aria-label="Alternar entre pedido e prompt">
+            <span class="seg-thumb" aria-hidden="true"></span>
+            <button type="button" class="seg-item active" data-pg-pane="form">Pedido</button>
+            <button type="button" class="seg-item" data-pg-pane="output">Prompt gerado</button>
+          </div>
+          <div class="pg-split">
+            <div class="pg-form">
+              <label class="field pg-field-main"><span>O que você quer pedir? <em class="pg-req">obrigatório</em></span>
+                <textarea id="pg-idea" rows="4" maxlength="20000" spellcheck="true" placeholder="Ex.: Escreva um e-mail para meus clientes avisando que a entrega vai atrasar 2 dias, em tom empático, com até 120 palavras."></textarea>
+              </label>
+              <div class="pg-detect"><svg class="i i-sm" aria-hidden="true"><use href="#i-sparkles"/></svg><span id="pg-detect-text">Digite seu pedido: o tipo de tarefa é detectado automaticamente.</span></div>
+              <div class="pg-row">
+                <label class="field"><span>Tipo de tarefa</span><select id="pg-type"></select></label>
+                <label class="field"><span>Idioma da resposta</span>
+                  <select id="pg-response-language"><option value="auto">Automático</option><option value="same">Mesmo idioma do pedido</option><option value="pt">Português (Brasil)</option><option value="en">English</option><option value="es">Español</option></select>
+                </label>
+              </div>
+              <label class="field"><span>Contexto <small>situação, objetivo maior, o que já tentou</small></span>
+                <textarea id="pg-context" rows="3" maxlength="20000" spellcheck="true" placeholder="Quanto mais a IA souber da situação, melhor ela acerta."></textarea>
+              </label>
+              <label class="field"><span>Material de entrada <small>texto, código, erro ou dados a serem trabalhados</small></span>
+                <textarea id="pg-material" class="pg-mono" rows="4" maxlength="200000" spellcheck="false" placeholder="Cole aqui o conteúdo. Ele será delimitado e tratado apenas como dado, nunca como instrução."></textarea>
+              </label>
+              <section class="pg-attach" id="pg-attach" aria-label="Arquivos e pastas">
+                <div class="pg-attach-head"><span class="label">Arquivos e pastas <small>analisados no seu computador; o texto entra no prompt</small></span></div>
+                <div id="pg-attach-drop" class="pg-attach-drop" tabindex="0" role="group" aria-label="Arraste arquivos ou uma pasta aqui">
+                  <svg class="i" aria-hidden="true"><use href="#i-upload"/></svg>
+                  <div class="pg-attach-copy"><strong>Arraste arquivos ou uma pasta aqui</strong><span>código, textos e configurações são lidos; imagens e binários só são listados</span></div>
+                  <div class="pg-attach-buttons"><button id="pg-attach-files" class="btn btn-sm" type="button">Arquivos</button><button id="pg-attach-folder" class="btn btn-sm" type="button">Pasta</button></div>
+                </div>
+                <div id="pg-attach-body" class="pg-attach-body hidden">
+                  <div class="pg-attach-summary">
+                    <div class="pg-attach-stats"><strong id="pg-attach-stats-main" class="num"></strong><small id="pg-attach-stats-detail"></small></div>
+                    <label class="pg-budget" title="Quantos tokens de conteúdo dos arquivos cabem no prompt. Os mais importantes entram primeiro."><span class="sr-only">Limite de conteúdo</span>
+                      <select id="pg-file-budget" aria-label="Limite de conteúdo dos arquivos no prompt">
+                        <option value="0">Só listar</option><option value="4000">≈ 4 mil tokens</option><option value="8000">≈ 8 mil tokens</option><option value="16000" selected>≈ 16 mil tokens</option><option value="32000">≈ 32 mil tokens</option><option value="64000">≈ 64 mil tokens</option><option value="128000">≈ 128 mil tokens</option>
+                      </select>
+                    </label>
+                    <button id="pg-attach-clear" class="btn btn-sm btn-ghost btn-danger" type="button">Remover tudo</button>
+                  </div>
+                  <ul id="pg-attach-list" class="pg-attach-list"></ul>
+                  <p id="pg-attach-note" class="pg-attach-note hidden"></p>
+                </div>
+              </section>
+              <details class="pg-advanced" id="pg-advanced">
+                <summary><svg class="i i-sm chevron" aria-hidden="true"><use href="#i-chevron"/></svg>Detalhes avançados <em id="pg-advanced-count" class="pg-count hidden"></em><small>papel, público, tom, formato, restrições, critérios, exemplo</small></summary>
+                <div class="pg-advanced-body">
+                  <div class="pg-row">
+                    <label class="field"><span>Papel da IA</span><input id="pg-role" type="text" maxlength="300" placeholder="Automático conforme a tarefa" spellcheck="false"></label>
+                    <label class="field"><span>Público</span><input id="pg-audience" type="text" maxlength="300" placeholder="Para quem é a resposta" spellcheck="false"></label>
+                  </div>
+                  <div class="pg-row three">
+                    <label class="field"><span>Tom</span><select id="pg-tone"></select></label>
+                    <label class="field"><span>Formato</span><select id="pg-format"></select></label>
+                    <label class="field"><span>Tamanho</span><select id="pg-length"><option value="auto">Automático</option><option value="short">Curto</option><option value="medium">Médio</option><option value="long">Longo / detalhado</option></select></label>
+                  </div>
+                  <label class="field"><span>Campos <small>para JSON ou tabela, separados por vírgula</small></span><input id="pg-fields" type="text" maxlength="500" placeholder="nome, valor, data" spellcheck="false"></label>
+                  <label class="field"><span>Restrições <small>uma por linha</small></span><textarea id="pg-constraints" rows="3" maxlength="5000" spellcheck="true" placeholder="Não use jargão&#10;Não prometa prazos"></textarea></label>
+                  <label class="field"><span>Critérios de sucesso <small>uma por linha</small></span><textarea id="pg-criteria" rows="3" maxlength="5000" spellcheck="true" placeholder="O cliente entende o que aconteceu e o que ganha"></textarea></label>
+                  <div class="pg-row">
+                    <label class="field"><span>Exemplo de entrada</span><textarea id="pg-example-in" class="pg-mono" rows="3" maxlength="20000" spellcheck="false"></textarea></label>
+                    <label class="field"><span>Exemplo de saída</span><textarea id="pg-example-out" class="pg-mono" rows="3" maxlength="20000" spellcheck="false"></textarea></label>
+                  </div>
+                </div>
+              </details>
+            </div>
+
+            <div class="pg-output-col">
+              <div class="pg-output-head"><strong>Prompt gerado</strong><span id="pg-output-meta" class="chip">aguardando pedido</span></div>
+              <div class="pg-output-wrap">
+                <pre id="pg-output" class="pg-output" tabindex="0" aria-label="Prompt gerado" aria-live="polite"></pre>
+                <div id="pg-output-empty" class="pg-empty"><svg class="i i-lg" aria-hidden="true"><use href="#i-sparkles"/></svg><strong>Seu prompt aparece aqui</strong><span>Escreva o que você quer e o prompt estruturado é montado enquanto você digita, tudo no seu computador.</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="tool-side pane" aria-label="Qualidade e estratégia do prompt">
+          <section class="side-sec">
+            <h3 class="side-title">Qualidade do prompt</h3>
+            <div class="pg-score">
+              <div class="pg-score-num"><strong id="pg-score" class="num">0</strong><span>/100</span></div>
+              <div class="pg-score-copy"><strong id="pg-score-label">Vazio</strong><div class="pg-bar" aria-hidden="true"><i id="pg-bar-fill"></i></div></div>
+            </div>
+            <ul id="pg-checklist" class="pg-checklist"></ul>
+            <div id="pg-alerts" class="pg-alerts"></div>
+          </section>
+          <section id="pg-questions-sec" class="side-sec hidden">
+            <h3 class="side-title">Para melhorar</h3>
+            <ul id="pg-questions" class="pg-questions"></ul>
+          </section>
+          <section id="pg-signals-sec" class="side-sec hidden">
+            <h3 class="side-title">Detectado no seu texto</h3>
+            <div id="pg-signals" class="pg-signals"></div>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Estratégia</h3>
+            <label class="field"><span>Otimizado para</span>
+              <select id="pg-target"><option value="universal">Universal (qualquer IA)</option><option value="claude">Claude</option><option value="gpt" selected>ChatGPT</option><option value="gemini">Gemini</option></select>
+            </label>
+            <div class="field"><span>Estrutura</span>
+              <div id="pg-style-seg" class="seg seg-block" role="group" aria-label="Estrutura do prompt">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item" data-pg-style="xml">XML</button><button type="button" class="seg-item" data-pg-style="markdown">Markdown</button><button type="button" class="seg-item active" data-pg-style="plain">Texto</button>
+              </div>
+            </div>
+            <div class="field"><span>Idioma do prompt</span>
+              <div id="pg-lang-seg" class="seg seg-block" role="group" aria-label="Idioma do prompt">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item active" data-pg-lang="pt">Português</button><button type="button" class="seg-item" data-pg-lang="en">English</button>
+              </div>
+            </div>
+            <label class="field"><span>Se faltar informação</span>
+              <select id="pg-clarify"><option value="assume">Assumir premissas e declará-las</option><option value="ask">Perguntar antes (até 3 perguntas)</option><option value="none">Responder direto</option></select>
+            </label>
+            <label class="switch-row"><span class="switch-copy"><strong>Raciocinar antes de responder</strong><small>pede passo a passo; dispensável em modelos que já raciocinam</small></span><input id="pg-reasoning" type="checkbox"><span class="switch"></span></label>
+            <label class="switch-row"><span class="switch-copy"><strong>Evitar invenções</strong><small>não inventar fatos, fontes ou números</small></span><input id="pg-grounding" type="checkbox" checked><span class="switch"></span></label>
+            <label class="switch-row"><span class="switch-copy"><strong>Conferir antes de entregar</strong><small>a IA revisa a própria resposta</small></span><input id="pg-verify" type="checkbox" checked><span class="switch"></span></label>
+          </section>
+        </aside>
+      </div>
+      <footer class="dock glass pg-dock">
+        <div class="dock-summary pg-stats"><strong id="pg-stats-main" class="num">Nenhum prompt ainda</strong><small id="pg-stats-detail">Escreva o que você quer pedir</small></div>
+        <div class="pg-actions">
+          <button id="pg-restore" class="btn btn-lg btn-ghost" type="button" title="Voltar ao uso mais comum: ChatGPT, mensagem de texto simples, em português"><svg class="i i-sm" aria-hidden="true"><use href="#i-refresh"/></svg>Restaurar padrão</button>
+          <button id="pg-clear" class="btn btn-lg btn-ghost btn-danger" type="button">Limpar</button>
+          <button id="pg-save" class="btn btn-lg" type="button" disabled><svg class="i i-sm"><use href="#i-download"/></svg>Salvar arquivo</button>
+          <button id="pg-copy" class="btn btn-primary btn-lg" type="button" disabled><svg class="i i-sm"><use href="#i-copy"/></svg><span>Copiar prompt</span></button>
+        </div>
+      </footer>
+    </section>
   </div>
+  <script src="catalog.js"></script>
+  <script src="prompt-engine.js"></script>
+  <script src="nav.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

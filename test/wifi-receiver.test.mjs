@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { readFile, readdir, rm, mkdtemp } from 'node:fs/promises';
+import { readFile, readdir, rm, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { findLanAddresses, sanitizeFileName, WifiReceiver } from '../src/wifi-receiver.mjs';
+import { findLanAddresses, PARTIAL_FILE_PATTERN, sanitizeFileName, WifiReceiver } from '../src/wifi-receiver.mjs';
 
 test('sanitizeFileName blocks traversal and Windows reserved characters', () => {
   assert.equal(sanitizeFileName('../../foto:verão?.jpg'), 'foto_verão_.jpg');
@@ -72,4 +72,50 @@ test('receiver streams exact bytes, validates its token and avoids overwrites', 
   assert.deepEqual(names.sort(), ['férias 2026 (2).jpg', 'férias 2026.jpg']);
   assert.equal(events.filter((event) => event.type === 'upload-completed').length, 2);
   assert.equal(receiver.publicState().receivedBytes, original.length * 2);
+});
+
+test('stopping the session mid-upload closes the port and leaves no partial file', async () => {
+  const destinationRoot = await mkdtemp(path.join(tmpdir(), 'arc-wifi-stop-'));
+  const receiver = new WifiReceiver({ maxFileBytes: 10 * 1024 * 1024 });
+  try {
+    const state = await receiver.start({ destinationRoot, host: '127.0.0.1', advertisedAddress: '127.0.0.1' });
+    const target = new URL(state.url);
+    const { request } = await import('node:http');
+    const hung = new Promise((resolve) => {
+      const upload = request({
+        host: '127.0.0.1', port: target.port, method: 'POST', path: `/upload?token=${target.searchParams.get('token')}`,
+        headers: { 'Content-Length': 5 * 1024 * 1024, 'X-ARC-File-Name': 'grande.bin' }
+      });
+      upload.on('error', () => resolve('aborted'));
+      upload.on('response', () => resolve('responded'));
+      upload.write(Buffer.alloc(64 * 1024)); // send a little, then stall: the transfer stays open
+    });
+    for (let attempt = 0; attempt < 50 && receiver.activeUploads === 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(receiver.activeUploads, 1, 'o envio deveria estar em andamento');
+    assert.ok((await readdir(destinationRoot)).some((name) => PARTIAL_FILE_PATTERN.test(name)), 'o arquivo parcial deveria existir durante o envio');
+
+    await receiver.stop();
+    await hung;
+    assert.equal(receiver.publicState().running, false);
+    assert.deepEqual((await readdir(destinationRoot)).filter((name) => PARTIAL_FILE_PATTERN.test(name)), []);
+    await assert.rejects(fetch(state.url), 'a porta deveria estar fechada depois de parar a sessão');
+  } finally {
+    await receiver.stop();
+    await rm(destinationRoot, { recursive: true, force: true });
+  }
+});
+
+test('starting a session removes partial files orphaned by a killed run, and nothing else', async () => {
+  const destinationRoot = await mkdtemp(path.join(tmpdir(), 'arc-wifi-stale-'));
+  const receiver = new WifiReceiver();
+  try {
+    await writeFile(path.join(destinationRoot, '.arc-receiving-0123456789abcdef0123.part'), 'sobra');
+    await writeFile(path.join(destinationRoot, 'foto.jpg'), 'do usuário');
+    await writeFile(path.join(destinationRoot, '.arc-receiving-curto.part'), 'não é nosso padrão');
+    await receiver.start({ destinationRoot, host: '127.0.0.1', advertisedAddress: '127.0.0.1' });
+    assert.deepEqual((await readdir(destinationRoot)).sort(), ['.arc-receiving-curto.part', 'foto.jpg']);
+  } finally {
+    await receiver.stop();
+    await rm(destinationRoot, { recursive: true, force: true });
+  }
 });

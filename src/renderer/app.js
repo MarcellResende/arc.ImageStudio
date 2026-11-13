@@ -191,7 +191,7 @@ const senderElements = {
   networkLabel: $('#sender-network-label'), downloadCount: $('#sender-download-count'), byteCount: $('#sender-byte-count'),
   feedSubtitle: $('#sender-feed-subtitle'), activityList: $('#sender-activity-list')
 };
-let updateUiState = { status: 'idle', currentVersion: '2.8.0', availableVersion: '', percent: 0, showNotice: false };
+let updateUiState = { status: 'idle', currentVersion: '2.9.0', availableVersion: '', percent: 0, showNotice: false };
 let dismissedUpdateStatus = '';
 
 function renderUpdateState(state) {
@@ -219,7 +219,7 @@ function renderUpdateState(state) {
 
   if (status === 'available') {
     updateElements.kicker.textContent = 'Atualização disponível';
-    updateElements.title.textContent = `ARC Image Studio v${availableVersion}`;
+    updateElements.title.textContent = `arc.Studio v${availableVersion}`;
     updateElements.detail.textContent = 'Um clique baixa, substitui a versão atual e abre o aplicativo novamente.';
     updateElements.action.textContent = 'Atualizar agora';
   } else if (status === 'downloading') {
@@ -277,6 +277,11 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 ** index)).toLocaleString('pt-BR', { maximumFractionDigits: index ? 1 : 0 })} ${units[index]}`;
 }
 
+/* The CSP forbids inline style attributes, so bar widths are applied through the CSSOM after rendering. */
+function applyProgressWidths(container) {
+  container.querySelectorAll('[data-percent]').forEach((bar) => { bar.style.width = `${bar.dataset.percent}%`; });
+}
+
 function receiverItemMarkup(item) {
   const total = Math.max(0, Number(item.size) || 0);
   const received = item.status === 'completed' ? total : Math.max(0, Number(item.receivedBytes) || 0);
@@ -291,7 +296,7 @@ function receiverItemMarkup(item) {
     <span class="receiver-file-icon"><svg class="i i-sm"><use href="#${icon}"/></svg></span>
     <span class="receiver-file-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(status)} · ${formatBytes(total)}</small></span>
     <span class="receiver-file-percent num">${item.status === 'completed' ? '100%' : item.status === 'error' ? 'Erro' : `${percent}%`}</span>
-    <span class="receiver-file-track"><i style="width:${percent}%"></i></span>
+    <span class="receiver-file-track"><i data-percent="${percent}"></i></span>
   </article>`;
 }
 
@@ -303,6 +308,7 @@ function renderReceiverFiles() {
     return;
   }
   receiverElements.fileList.innerHTML = items.map(receiverItemMarkup).join('');
+  applyProgressWidths(receiverElements.fileList);
   const active = items.filter((item) => item.status === 'receiving').length;
   receiverElements.feedSubtitle.textContent = active
     ? `${active} ${active === 1 ? 'transferência em andamento' : 'transferências em andamento'}`
@@ -429,7 +435,7 @@ function senderActivityMarkup(item) {
     <span class="receiver-file-icon"><svg class="i i-sm"><use href="#${icon}"/></svg></span>
     <span class="receiver-file-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(status)} · ${formatBytes(size)}</small></span>
     <span class="receiver-file-percent num">${item.status === 'completed' ? '100%' : item.status === 'error' ? 'Erro' : `${percent}%`}</span>
-    <span class="receiver-file-track"><i style="width:${percent}%"></i></span>
+    <span class="receiver-file-track"><i data-percent="${percent}"></i></span>
   </article>`;
 }
 
@@ -441,6 +447,7 @@ function renderSenderActivities() {
     return;
   }
   senderElements.activityList.innerHTML = items.map(senderActivityMarkup).join('');
+  applyProgressWidths(senderElements.activityList);
   const active = items.filter((item) => item.status === 'receiving').length;
   senderElements.feedSubtitle.textContent = active
     ? `${active} ${active === 1 ? 'download em andamento' : 'downloads em andamento'}`
@@ -555,7 +562,7 @@ function showPasteToast(message, type = 'success') {
 }
 
 function activeTool() {
-  return $('.tool-tab.active')?.dataset.tool || 'compressor';
+  return window.ArcNav?.current() || 'compressor';
 }
 
 function pasteTargetIsEditable(target) {
@@ -797,7 +804,11 @@ async function chooseCompressorFiles(folder = false) {
 
 async function chooseOutput(state, element) {
   const selected = await window.arc.selectOutput();
-  if (selected) { state.outputRoot = selected; element.value = selected; }
+  if (selected) {
+    state.outputRoot = selected; element.value = selected;
+    const key = outputKeyOf(state);
+    if (key) saveSettings({ paths: { [key]: selected } });
+  }
 }
 
 async function startOptimization() {
@@ -1625,6 +1636,547 @@ function resetMetadataCleaner() {
   renderMetadataQueue();
 }
 
+/* ───────── Persistent preferences ─────────
+   Folders and tool options are saved by the main process in userData (settings.json) and restored on start.
+   Deliberately NOT saved: the rename "originals" mode (destructive) and batch-specific text (prefix, suffix, find/replace). */
+const settingsState = { ready: false, timer: 0 };
+
+function saveSettings(patch) {
+  if (!settingsState.ready) return;
+  window.arc.saveSettings(patch).catch(() => {});
+}
+
+function outputKeyOf(state) {
+  return state === compressor ? 'compressor' : state === resizer ? 'resizer' : state === converter ? 'converter'
+    : state === renamer ? 'renamer' : state === metadataCleaner ? 'metadata' : '';
+}
+
+function collectOptions() {
+  return {
+    compressor: { level: $('input[name="level"]:checked')?.value || 'lossless' },
+    resizer: {
+      mode: resizer.mode, lockRatio: resizer.lockRatio, platform: resizer.platform, presetId: resizer.presetId,
+      percentage: Math.max(1, Math.min(500, Math.round(Number(resizeElements.percentage.value)) || 50))
+    },
+    converter: {
+      format: converter.format, quality: converter.quality, lossless: converter.lossless, background: converter.background,
+      preserveColorProfile: converter.preserveColorProfile, keepMetadata: converter.keepMetadata
+    },
+    renamer: { pattern: renamer.pattern, caseMode: renamer.caseMode, caseSensitive: renamer.caseSensitive, digits: renamer.digits },
+    metadata: { preserveColorProfile: metadataCleaner.preserveColorProfile },
+    promptGen: {
+      target: pg.target.value, style: promptGen.style, promptLanguage: promptGen.promptLanguage, responseLanguage: pg.responseLanguage.value,
+      clarify: pg.clarify.value, reasoning: pg.reasoning.checked, grounding: pg.grounding.checked, verify: pg.verify.checked,
+      fileBudget: Number(pg.fileBudget.value)
+    }
+  };
+}
+
+function scheduleOptionsSave() {
+  if (!settingsState.ready) return;
+  clearTimeout(settingsState.timer);
+  settingsState.timer = setTimeout(() => saveSettings(collectOptions()), 400);
+}
+
+async function loadSettings() {
+  let loaded;
+  try {
+    loaded = await window.arc.getSettings();
+  } catch {
+    const fallback = await window.arc.defaultOutput();
+    loaded = { settings: null, effectivePaths: {}, unavailable: [], defaults: { output: fallback, receiverOutput: '' } };
+  }
+  const { settings, effectivePaths = {}, unavailable = [], defaults } = loaded;
+
+  const targets = [
+    ['compressor', compressor, compressorElements], ['resizer', resizer, resizeElements], ['converter', converter, converterElements],
+    ['renamer', renamer, renamerElements], ['metadata', metadataCleaner, metadataElements]
+  ];
+  for (const [key, state, elements] of targets) {
+    state.outputRoot = effectivePaths[key] || defaults.output;
+    elements.outputPath.value = state.outputRoot;
+  }
+  if (effectivePaths.receiver) { receiver.destinationRoot = effectivePaths.receiver; receiverElements.outputPath.value = effectivePaths.receiver; }
+
+  if (settings) {
+    const radio = $(`input[name="level"][value="${settings.compressor.level}"]`);
+    if (radio) { radio.checked = true; updateCompressorSummary(); }
+
+    const r = settings.resizer;
+    resizeElements.percentage.value = r.percentage;
+    resizeElements.percentageRange.value = Math.min(200, r.percentage);
+    $$('[data-percentage]').forEach((item) => item.classList.toggle('active', item.dataset.percentage === String(r.percentage)));
+    resizer.platform = r.platform;
+    if (presets[r.platform].some((preset) => preset.id === r.presetId)) resizer.presetId = r.presetId;
+    $$('[data-platform]').forEach((item) => item.classList.toggle('active', item.dataset.platform === r.platform));
+    renderPresets();
+    setRatioLock(r.lockRatio);
+    setResizeMode(r.mode);
+
+    const c = settings.converter;
+    Object.assign(converter, { format: c.format, quality: c.quality, lossless: c.lossless && ['webp', 'avif'].includes(c.format), background: c.background, preserveColorProfile: c.preserveColorProfile, keepMetadata: c.keepMetadata });
+    converterElements.qualityRange.value = c.quality;
+    converterElements.background.value = c.background;
+    converterElements.backgroundValue.textContent = c.background.toUpperCase();
+    converterElements.colorProfileInput.checked = c.preserveColorProfile;
+    converterElements.metadataInput.checked = c.keepMetadata;
+    updateConverterControls();
+
+    const n = settings.renamer;
+    Object.assign(renamer, { pattern: n.pattern, caseMode: n.caseMode, caseSensitive: n.caseSensitive, digits: n.digits });
+    renamerElements.pattern.value = n.pattern;
+    renamerElements.caseMode.value = n.caseMode;
+    renamerElements.caseSensitiveInput.checked = n.caseSensitive;
+    renamerElements.digits.value = String(n.digits);
+    updateRenamerControls();
+    refreshRenamePreview();
+
+    metadataCleaner.preserveColorProfile = settings.metadata.preserveColorProfile;
+    metadataElements.colorProfileInput.checked = metadataCleaner.preserveColorProfile;
+    metadataElements.colorProfile.classList.toggle('active', metadataCleaner.preserveColorProfile);
+    metadataElements.colorProfile.querySelector('small').textContent = metadataCleaner.preserveColorProfile
+      ? 'ICC mantido · EXIF e rastros de IA removidos'
+      : 'limpeza total · inclusive perfil de cores ICC';
+
+    const g = settings.promptGen;
+    pg.target.value = g.target; pg.responseLanguage.value = g.responseLanguage; pg.clarify.value = g.clarify;
+    pg.reasoning.checked = g.reasoning; pg.grounding.checked = g.grounding; pg.verify.checked = g.verify;
+    promptGen.style = g.style; promptGen.promptLanguage = g.promptLanguage; setBudgetSelect(g.fileBudget);
+    for (const key of PG_DRAFT_FIELDS) pg[key].value = settings.promptDraft[key] || '';
+    syncPromptSegments(); renderPromptGen();
+
+    window.ArcNav?.show(settings.ui.lastTool, { animate: false });
+  }
+
+  [resizeElements.percentageRange, converterElements.qualityRange].forEach(setRangeFill);
+  $$('.seg').forEach(syncSeg);
+  settingsState.ready = true;
+  if (unavailable.length) {
+    showPasteToast('Uma pasta salva não está disponível agora (disco desconectado?). Usando a pasta padrão até você escolher outra.', 'error');
+  }
+}
+
+// Any change inside an options panel may alter a saved preference; saving is debounced and cheap.
+for (const eventName of ['change', 'input', 'click']) {
+  document.addEventListener(eventName, (event) => { if (event.target.closest?.('.tool-side')) scheduleOptionsSave(); });
+}
+document.addEventListener('arc:toolchange', (event) => saveSettings({ ui: { lastTool: event.detail.tool } }));
+
+/* ───────── Prompt Gen ─────────
+   The engine (prompt-engine.js) is pure and local. This block only reads the form, renders the result and
+   wires copy/save. Nothing typed here leaves the computer. */
+const promptGen = { style: 'plain', promptLanguage: 'pt', result: null, renderTimer: 0, draftTimer: 0 };
+const PG = window.ArcPromptEngine;
+const pg = {
+  idea: $('#pg-idea'), type: $('#pg-type'), responseLanguage: $('#pg-response-language'), context: $('#pg-context'), material: $('#pg-material'),
+  role: $('#pg-role'), audience: $('#pg-audience'), tone: $('#pg-tone'), format: $('#pg-format'), length: $('#pg-length'), fields: $('#pg-fields'),
+  constraints: $('#pg-constraints'), criteria: $('#pg-criteria'), exampleIn: $('#pg-example-in'), exampleOut: $('#pg-example-out'),
+  target: $('#pg-target'), clarify: $('#pg-clarify'), reasoning: $('#pg-reasoning'), grounding: $('#pg-grounding'), verify: $('#pg-verify'),
+  output: $('#pg-output'), outputEmpty: $('#pg-output-empty'), outputMeta: $('#pg-output-meta'), detectText: $('#pg-detect-text'),
+  score: $('#pg-score'), scoreLabel: $('#pg-score-label'), barFill: $('#pg-bar-fill'), scoreBox: $('.pg-score'), checklist: $('#pg-checklist'), alerts: $('#pg-alerts'),
+  questions: $('#pg-questions'), questionsSec: $('#pg-questions-sec'), signals: $('#pg-signals'), signalsSec: $('#pg-signals-sec'),
+  statsMain: $('#pg-stats-main'), statsDetail: $('#pg-stats-detail'), copy: $('#pg-copy'), restore: $('#pg-restore'),
+  attach: $('#pg-attach'), attachDrop: $('#pg-attach-drop'), attachBody: $('#pg-attach-body'), attachStatsMain: $('#pg-attach-stats-main'), attachStatsDetail: $('#pg-attach-stats-detail'),
+  attachList: $('#pg-attach-list'), attachNote: $('#pg-attach-note'), attachFiles: $('#pg-attach-files'), attachFolder: $('#pg-attach-folder'), attachClear: $('#pg-attach-clear'),
+  fileBudget: $('#pg-file-budget'), advancedCount: $('#pg-advanced-count'), save: $('#pg-save'), clear: $('#pg-clear'),
+  main: $('.pg-main'), advanced: $('#pg-advanced'), styleSeg: $('#pg-style-seg'), langSeg: $('#pg-lang-seg')
+};
+
+/* The most common way to use it: ChatGPT, plain-text message, Portuguese. "Restaurar padrão" returns here. */
+const PG_DEFAULTS = { target: 'gpt', style: 'plain', promptLanguage: 'pt', responseLanguage: 'auto', clarify: 'assume', reasoning: false, grounding: true, verify: true, fileBudget: 16000 };
+const PG_DRAFT_FIELDS = ['idea', 'context', 'role', 'audience', 'constraints', 'criteria', 'fields'];
+const PG_CONFIDENCE = { high: 'alta', medium: 'média', low: 'baixa' };
+const PG_STATUS_ICON = { ok: 'check', auto: 'sparkles', warn: 'alert', missing: 'x' };
+const PG_STATUS_TEXT = { ok: 'ok', auto: 'automático', warn: 'atenção', missing: 'falta' };
+const PG_FOCUS_TARGET = {
+  idea: 'idea', context: 'context', material: 'material', format: 'format', constraints: 'constraints', criteria: 'criteria',
+  audience: 'audience', tone: 'tone', length: 'length', fields: 'fields', role: 'role'
+};
+
+/* ───── Attached files and folders ─────
+   Picked or dropped by the user, read by the main process, analysed by the engine. Never saved to disk by the app. */
+const attachments = { items: [], key: 0, skipped: new Set(), limitReached: false };
+const ATTACH_MAX = 400;
+
+function formatCount(value) {
+  return value >= 10000 ? `${(value / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 0 })} mil` : value.toLocaleString('pt-BR');
+}
+
+function attachmentStatus(entry, report) {
+  if (entry.kind === 'secret') return { text: 'Não lido (segredos)', tone: 'blocked' };
+  if (entry.kind === 'ignored') return { text: entry.reason ? `Ignorado: ${entry.reason}` : 'Ignorado', tone: '' };
+  if (entry.kind === 'binary') return { text: 'Binário', tone: '' };
+  if (entry.kind === 'image') return { text: 'Imagem', tone: '' };
+  const item = report?.[entry.id];
+  if (!item) return { text: entry.truncated ? 'Arquivo grande' : 'Pronto', tone: '' };
+  if (item.status === 'full') return { text: 'No prompt', tone: 'full' };
+  if (item.status === 'truncated') return { text: 'Truncado', tone: 'truncated' };
+  return { text: 'Só listado', tone: 'listed' };
+}
+
+function attachmentIcon(entry) {
+  return entry.kind === 'secret' ? 'lock' : entry.kind === 'image' ? 'image' : entry.kind === 'text' ? 'file-text' : 'file';
+}
+
+function attachmentMeta(entry) {
+  const parts = [formatBytes(entry.size)];
+  if (entry.kind === 'text') {
+    parts.push(`${entry.lines.toLocaleString('pt-BR')} linhas`);
+    const language = PG.languageOf(entry);
+    if (language) parts.push(language);
+  } else if (entry.kind === 'image' && entry.width) parts.push(`${entry.width}×${entry.height}`);
+  return parts.join(' · ');
+}
+
+function renderAttachments() {
+  const has = attachments.items.length > 0;
+  pg.attachBody.classList.toggle('hidden', !has);
+  if (!has) return;
+  const analysis = PG.analyzeFiles(attachments.items, attachments.key);
+  const report = promptGen.result?.files?.report;
+  const readable = analysis.readable.length;
+  pg.attachStatsMain.textContent = `${analysis.count.toLocaleString('pt-BR')} ${analysis.count === 1 ? 'item' : 'itens'} · ${formatCount(analysis.totalLines)} linhas de texto · ${formatBytes(analysis.totalBytes)}`;
+  const languages = analysis.byLanguage.slice(0, 3).map((item) => `${item.name} ${item.count}`).join(', ');
+  const stack = analysis.stack.slice(0, 4).join(', ');
+  pg.attachStatsDetail.textContent = [languages, stack, readable ? '' : 'nenhum arquivo de texto'].filter(Boolean).join(' · ') || 'sem texto legível';
+
+  const shown = attachments.items.slice(0, 200);
+  pg.attachList.innerHTML = shown.map((entry) => {
+    const state = attachmentStatus(entry, report);
+    return `<li class="pg-attach-row"><svg class="i" aria-hidden="true"><use href="#i-${attachmentIcon(entry)}"/></svg>`
+      + `<span class="pg-attach-name" title="${escapeHtml(entry.path || entry.relativePath)}"><strong>${escapeHtml(entry.relativePath)}</strong><small>${escapeHtml(attachmentMeta(entry))}</small></span>`
+      + `<span class="pg-attach-state ${state.tone}">${escapeHtml(state.text)}</span>`
+      + `<button type="button" class="pg-attach-remove" data-attach-remove="${escapeHtml(entry.id)}" aria-label="Remover ${escapeHtml(entry.relativePath)}" title="Remover"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button></li>`;
+  }).join('') + (attachments.items.length > shown.length ? `<li class="pg-attach-note">e mais ${(attachments.items.length - shown.length).toLocaleString('pt-BR')} itens (todos entram na análise)</li>` : '');
+
+  const notes = [];
+  if (attachments.skipped.size) notes.push(`Pastas ignoradas por serem de dependências ou build: ${[...attachments.skipped].slice(0, 8).join(', ')}.`);
+  if (attachments.limitReached) notes.push(`Limite de ${ATTACH_MAX} arquivos atingido: o restante não foi lido.`);
+  pg.attachNote.textContent = notes.join(' ');
+  pg.attachNote.classList.toggle('hidden', !notes.length);
+}
+
+function mergeAttachments(result) {
+  if (!result?.entries?.length) {
+    if (result) showPasteToast('Nada para analisar nesse local.', 'error');
+    return;
+  }
+  const known = new Set(attachments.items.map((entry) => String(entry.path).toLowerCase()));
+  let added = 0;
+  for (const entry of result.entries) {
+    if (attachments.items.length >= ATTACH_MAX) { attachments.limitReached = true; break; }
+    if (known.has(String(entry.path).toLowerCase())) continue;
+    known.add(String(entry.path).toLowerCase());
+    attachments.items.push({ ...entry });
+    added += 1;
+  }
+  for (const name of result.skippedDirectories || []) attachments.skipped.add(name);
+  if (result.limitReached) attachments.limitReached = true;
+  // Two different files with the same relative path (e.g. two "index.js"): keep the parent folder to tell them apart.
+  const counts = new Map();
+  for (const entry of attachments.items) counts.set(entry.relativePath, (counts.get(entry.relativePath) || 0) + 1);
+  for (const entry of attachments.items) {
+    if (counts.get(entry.relativePath) > 1) entry.relativePath = String(entry.path).split(/[\\/]/).slice(-2).join('/');
+  }
+  attachments.key += 1;
+  renderPromptGen();
+  showPasteToast(added ? `${added} ${added === 1 ? 'item adicionado' : 'itens adicionados'} para análise.` : 'Esses arquivos já estavam na lista.', added ? 'success' : 'error');
+}
+
+async function chooseAttachments(mode) {
+  try { mergeAttachments(await window.arc.selectAttachments(mode)); }
+  catch (error) { showPasteToast(error?.message || 'Não foi possível ler os arquivos.', 'error'); }
+}
+
+function removeAttachment(id) {
+  attachments.items = attachments.items.filter((entry) => entry.id !== id);
+  attachments.key += 1;
+  if (!attachments.items.length) { attachments.skipped.clear(); attachments.limitReached = false; }
+  renderPromptGen();
+}
+
+function clearAttachments() {
+  attachments.items = [];
+  attachments.skipped.clear();
+  attachments.limitReached = false;
+  attachments.key += 1;
+  renderPromptGen();
+}
+
+function setBudgetSelect(value) {
+  const wanted = Number(value);
+  let best = pg.fileBudget.options[0];
+  for (const option of pg.fileBudget.options) if (Math.abs(Number(option.value) - wanted) < Math.abs(Number(best.value) - wanted)) best = option;
+  pg.fileBudget.value = best.value;
+}
+
+function updateAdvancedCount() {
+  const filled = [pg.role, pg.audience, pg.fields, pg.constraints, pg.criteria, pg.exampleIn, pg.exampleOut].filter((element) => element.value.trim()).length
+    + [pg.tone, pg.format, pg.length].filter((element) => element.value !== 'auto').length;
+  pg.advancedCount.textContent = `${filled} ${filled === 1 ? 'preenchido' : 'preenchidos'}`;
+  pg.advancedCount.classList.toggle('hidden', !filled);
+}
+
+function hasFilePayload(event) {
+  return [...(event.dataTransfer?.types || [])].includes('Files');
+}
+
+async function dropAttachments(event) {
+  event.preventDefault();
+  $('#prompt-gen-view').classList.remove('dragging');
+  pg.attachDrop.classList.remove('dragging');
+  const paths = [...event.dataTransfer.files].map((file) => window.arc.getPathForFile(file)).filter(Boolean);
+  if (!paths.length) return;
+  try { mergeAttachments(await window.arc.addAttachmentPaths(paths)); }
+  catch (error) { showPasteToast(error?.message || 'Não foi possível ler os arquivos.', 'error'); }
+}
+
+function fillPromptSelects() {
+  pg.type.innerHTML = '<option value="auto">Automático</option>' + PG.TYPE_ORDER.map((id) => `<option value="${id}">${escapeHtml(PG.TYPES[id].label)}</option>`).join('');
+  pg.tone.innerHTML = '<option value="auto">Automático</option>' + Object.entries(PG.TONES).map(([id, tone]) => `<option value="${id}">${escapeHtml(tone.label)}</option>`).join('');
+  pg.format.innerHTML = '<option value="auto">Automático</option>' + Object.entries(PG.FORMATS).map(([id, format]) => `<option value="${id}">${escapeHtml(format.label)}</option>`).join('');
+}
+
+function readPromptInput() {
+  return {
+    idea: pg.idea.value, type: pg.type.value, context: pg.context.value, material: pg.material.value, role: pg.role.value,
+    audience: pg.audience.value, tone: pg.tone.value, format: pg.format.value, length: pg.length.value, fields: pg.fields.value,
+    constraints: pg.constraints.value, criteria: pg.criteria.value, exampleIn: pg.exampleIn.value, exampleOut: pg.exampleOut.value,
+    style: promptGen.style, target: pg.target.value, promptLanguage: promptGen.promptLanguage, responseLanguage: pg.responseLanguage.value,
+    reasoning: pg.reasoning.checked, clarify: pg.clarify.value, verify: pg.verify.checked, grounding: pg.grounding.checked,
+    files: attachments.items, filesKey: attachments.key, fileBudget: Number(pg.fileBudget.value)
+  };
+}
+
+function renderPromptOutput(prompt) {
+  const fragment = document.createDocumentFragment();
+  for (const line of prompt.split('\n')) {
+    const span = document.createElement('span');
+    if (/^<\/?[a-z_]+>$/.test(line) || /^## /.test(line) || /^[A-ZÀ-ÚÇ ]+:$/.test(line)) span.className = 'pg-tag';
+    span.textContent = line;
+    fragment.append(span, '\n');
+  }
+  pg.output.replaceChildren(fragment);
+}
+
+function describeLength(length) {
+  if (!length) return '';
+  const words = { max: `até ${length.amount}`, min: `pelo menos ${length.amount}`, approx: `cerca de ${length.amount}`, exact: `${length.amount}`, range: `${length.from}–${length.to}` }[length.kind];
+  return `${words} ${length.unit}`;
+}
+
+function renderPromptSignals(result) {
+  const chips = [];
+  const { signals, type, applied } = result;
+  chips.push(`Tipo: ${type.label}${type.auto ? ` · confiança ${PG_CONFIDENCE[type.confidence]}` : ' · definido por você'}`);
+  if (applied.formatSource === 'detected' && applied.format) chips.push(`Formato: ${PG.FORMATS[applied.format].label}`);
+  if (signals.length) chips.push(`Tamanho: ${describeLength(signals.length)}`);
+  else if (signals.brevity) chips.push(`Tamanho: ${signals.brevity === 'short' ? 'curto' : 'detalhado'}`);
+  if (signals.audience) chips.push(`Público: ${signals.audience}`);
+  if (signals.tone) chips.push(`Tom: ${PG.TONES[signals.tone].label.toLowerCase()}`);
+  if (signals.responseLanguage) chips.push(`Responder em: ${PG.RESPONSE_LANGUAGES[signals.responseLanguage].label}`);
+  if (signals.targetLanguage) chips.push(`Idioma de destino: ${signals.targetLanguage}`);
+  if (signals.programmingLanguages.length) chips.push(`Tecnologia: ${signals.programmingLanguages.join(', ')}`);
+  const hasIdea = Boolean(pg.idea.value.trim());
+  pg.signalsSec.classList.toggle('hidden', !hasIdea);
+  pg.signals.innerHTML = chips.map((text) => `<span class="chip chip-accent">${escapeHtml(text)}</span>`).join('');
+}
+
+function renderPromptAnalysis(result) {
+  const { analysis } = result;
+  const level = analysis.label === 'Vazio' ? 'empty' : analysis.score >= 85 ? 'great' : analysis.score >= 70 ? 'good' : analysis.score >= 50 ? 'fair' : 'low';
+  pg.scoreBox.dataset.level = level;
+  pg.score.textContent = String(analysis.score);
+  pg.scoreLabel.textContent = analysis.label;
+  pg.barFill.style.width = `${analysis.score}%`;
+
+  const hasIdea = Boolean(pg.idea.value.trim());
+  pg.checklist.innerHTML = hasIdea ? analysis.items.map((item) => `<li><button type="button" class="pg-check ${item.status}" data-pg-focus="${escapeHtml(item.field)}" title="${escapeHtml(item.detail)}">`
+    + `<span class="pg-check-icon"><svg class="i i-xs" aria-hidden="true"><use href="#i-${PG_STATUS_ICON[item.status]}"/></svg></span>`
+    + `<span class="pg-check-copy"><strong>${escapeHtml(item.label)}</strong>${item.status === 'ok' ? '' : `<small>${escapeHtml(item.detail)}</small>`}</span>`
+    + `<em>${PG_STATUS_TEXT[item.status]}</em></button></li>`).join('')
+    : '<li class="pg-check-empty">Escreva seu pedido para ver a avaliação.</li>';
+
+  pg.alerts.innerHTML = analysis.alerts.map((alert) => `<div class="callout ${alert.level === 'warn' ? 'callout-warn' : ''}"><svg class="i" aria-hidden="true"><use href="#i-${alert.level === 'warn' ? 'alert' : 'info'}"/></svg><span>${escapeHtml(alert.text)}</span></div>`).join('');
+
+  pg.questionsSec.classList.toggle('hidden', !hasIdea || !analysis.questions.length);
+  pg.questions.innerHTML = analysis.questions.map((question) => `<li><button type="button" data-pg-focus="${escapeHtml(question.field)}"><svg class="i i-xs" aria-hidden="true"><use href="#i-arrow-right"/></svg><span>${escapeHtml(question.text)}</span></button></li>`).join('');
+}
+
+function renderPromptGen() {
+  promptGen.result = PG.generate(readPromptInput());
+  const result = promptGen.result;
+  const hasPrompt = Boolean(result.prompt);
+
+  pg.output.classList.toggle('hidden', !hasPrompt);
+  pg.outputEmpty.classList.toggle('hidden', hasPrompt);
+  if (hasPrompt) renderPromptOutput(result.prompt); else pg.output.replaceChildren();
+  pg.copy.disabled = !hasPrompt;
+  pg.save.disabled = !hasPrompt;
+  pg.restore.disabled = isPromptDefault();
+
+  const detected = result.type;
+  pg.type.options[0].textContent = hasPrompt && detected.auto ? `Automático · ${detected.label}` : 'Automático';
+  if (!hasPrompt) pg.detectText.textContent = 'Digite seu pedido: o tipo de tarefa é detectado automaticamente.';
+  else {
+    const also = detected.auto && detected.confidence === 'low' && detected.alternatives.length ? ` Talvez: ${detected.alternatives.map((item) => item.label).join(' ou ')}.` : '';
+    pg.detectText.textContent = detected.auto ? `Detectado: ${detected.label} (confiança ${PG_CONFIDENCE[detected.confidence]}).${also}` : `Tipo definido por você: ${detected.label}.`;
+  }
+
+  pg.outputMeta.textContent = hasPrompt ? `${result.sections.length} seções · ≈ ${result.stats.tokens.toLocaleString('pt-BR')} tokens` : 'aguardando pedido';
+  const styleName = { xml: 'XML', markdown: 'Markdown', plain: 'Texto' }[result.applied.style];
+  const targetName = { universal: 'Universal', claude: 'Claude', gpt: 'ChatGPT', gemini: 'Gemini' }[result.applied.target];
+  pg.statsMain.textContent = hasPrompt ? `≈ ${result.stats.tokens.toLocaleString('pt-BR')} tokens · ${result.stats.words.toLocaleString('pt-BR')} palavras` : 'Nenhum prompt ainda';
+  pg.statsDetail.textContent = hasPrompt ? `${styleName} · ${targetName} · ${result.applied.lang === 'en' ? 'English' : 'Português'} · qualidade ${result.analysis.score}/100` : 'Escreva o que você quer pedir';
+
+  renderPromptSignals(result);
+  renderPromptAnalysis(result);
+  renderAttachments();
+  updateAdvancedCount();
+}
+
+function schedulePromptRender() {
+  clearTimeout(promptGen.renderTimer);
+  promptGen.renderTimer = setTimeout(renderPromptGen, 90);
+}
+
+function scheduleDraftSave() {
+  if (!settingsState.ready) return;
+  clearTimeout(promptGen.draftTimer);
+  promptGen.draftTimer = setTimeout(() => {
+    saveSettings({ promptDraft: Object.fromEntries(PG_DRAFT_FIELDS.map((key) => [key, pg[key].value])) });
+  }, 700);
+}
+
+function syncPromptSegments() {
+  for (const button of pg.styleSeg.querySelectorAll('[data-pg-style]')) button.classList.toggle('active', button.dataset.pgStyle === promptGen.style);
+  for (const button of pg.langSeg.querySelectorAll('[data-pg-lang]')) button.classList.toggle('active', button.dataset.pgLang === promptGen.promptLanguage);
+  syncSeg(pg.styleSeg); syncSeg(pg.langSeg);
+}
+
+function isPromptDefault() {
+  const d = PG_DEFAULTS;
+  return pg.target.value === d.target && promptGen.style === d.style && promptGen.promptLanguage === d.promptLanguage
+    && pg.responseLanguage.value === d.responseLanguage && pg.clarify.value === d.clarify
+    && pg.reasoning.checked === d.reasoning && pg.grounding.checked === d.grounding && pg.verify.checked === d.verify
+    && Number(pg.fileBudget.value) === d.fileBudget;
+}
+
+/* Resets only the strategy options. What you typed (request, context, material…) is left alone. */
+function restorePromptDefaults() {
+  const d = PG_DEFAULTS;
+  pg.target.value = d.target; pg.responseLanguage.value = d.responseLanguage; pg.clarify.value = d.clarify;
+  pg.reasoning.checked = d.reasoning; pg.grounding.checked = d.grounding; pg.verify.checked = d.verify;
+  promptGen.style = d.style; promptGen.promptLanguage = d.promptLanguage;
+  setBudgetSelect(d.fileBudget);
+  syncPromptSegments();
+  renderPromptGen();
+  scheduleOptionsSave();
+  showPasteToast('Configurações restauradas: ChatGPT, mensagem de texto simples, em português.');
+}
+
+function setPromptPane(pane) {
+  pg.main.dataset.pane = pane;
+  $$('[data-pg-pane]').forEach((button) => button.classList.toggle('active', button.dataset.pgPane === pane));
+  syncSeg($('.pg-tabs'));
+}
+
+function focusPromptField(name) {
+  const element = name === 'files' ? pg.attachDrop : pg[PG_FOCUS_TARGET[name] || 'idea'];
+  if (!element) return;
+  setPromptPane('form');
+  if (pg.advanced.contains(element)) pg.advanced.open = true;
+  element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  element.focus({ preventScroll: true });
+}
+
+function promptFileName() {
+  const type = promptGen.result?.type.label || 'prompt';
+  const slug = type.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'prompt';
+  return `prompt-${slug}.${promptGen.style === 'markdown' ? 'md' : 'txt'}`;
+}
+
+async function copyPrompt() {
+  const text = promptGen.result?.prompt;
+  if (!text) return;
+  let copied = false;
+  try { copied = await window.arc.writeClipboardText(text); } catch { copied = false; }
+  showPasteToast(copied ? 'Prompt copiado para a área de transferência.' : 'Não foi possível copiar o prompt.', copied ? 'success' : 'error');
+  if (!copied) return;
+  const label = pg.copy.querySelector('span');
+  label.textContent = 'Copiado';
+  setTimeout(() => { label.textContent = 'Copiar prompt'; }, 1600);
+}
+
+async function savePromptFile() {
+  const text = promptGen.result?.prompt;
+  if (!text) return;
+  try {
+    const savedPath = await window.arc.savePromptFile({ text, suggestedName: promptFileName() });
+    if (savedPath) showPasteToast(`Prompt salvo em ${savedPath}`);
+  } catch (error) {
+    showPasteToast(error?.message || 'Não foi possível salvar o arquivo.', 'error');
+  }
+}
+
+function clearPromptForm() {
+  const filled = [...PG_DRAFT_FIELDS, 'material', 'exampleIn', 'exampleOut'].some((key) => pg[key].value.trim()) || attachments.items.length > 0;
+  if (filled && !window.confirm('Limpar todos os campos e arquivos do Prompt Gen?')) return;
+  clearAttachments();
+  for (const key of [...PG_DRAFT_FIELDS, 'material', 'exampleIn', 'exampleOut']) pg[key].value = '';
+  for (const key of ['type', 'tone', 'format', 'length']) pg[key].value = 'auto';
+  scheduleDraftSave();
+  renderPromptGen();
+  pg.idea.focus();
+}
+
+fillPromptSelects();
+for (const element of [pg.idea, pg.type, pg.responseLanguage, pg.context, pg.material, pg.role, pg.audience, pg.tone, pg.format, pg.length, pg.fields, pg.constraints, pg.criteria, pg.exampleIn, pg.exampleOut, pg.clarify, pg.reasoning, pg.grounding, pg.verify]) {
+  element.addEventListener('input', () => { schedulePromptRender(); scheduleDraftSave(); scheduleOptionsSave(); });
+  element.addEventListener('change', () => { schedulePromptRender(); scheduleDraftSave(); scheduleOptionsSave(); });
+}
+pg.target.addEventListener('change', () => {
+  promptGen.style = PG.STYLE_BY_TARGET[pg.target.value] || 'xml';
+  syncPromptSegments(); renderPromptGen(); scheduleOptionsSave();
+});
+pg.styleSeg.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-pg-style]');
+  if (button) { promptGen.style = button.dataset.pgStyle; syncPromptSegments(); renderPromptGen(); scheduleOptionsSave(); }
+});
+pg.langSeg.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-pg-lang]');
+  if (button) { promptGen.promptLanguage = button.dataset.pgLang; syncPromptSegments(); renderPromptGen(); scheduleOptionsSave(); }
+});
+$$('[data-pg-pane]').forEach((button) => button.addEventListener('click', () => setPromptPane(button.dataset.pgPane)));
+document.addEventListener('click', (event) => {
+  const trigger = event.target.closest?.('[data-pg-focus]');
+  if (trigger) focusPromptField(trigger.dataset.pgFocus);
+});
+pg.copy.addEventListener('click', copyPrompt);
+pg.save.addEventListener('click', savePromptFile);
+pg.clear.addEventListener('click', clearPromptForm);
+pg.attachFiles.addEventListener('click', () => chooseAttachments('files'));
+pg.attachFolder.addEventListener('click', () => chooseAttachments('folder'));
+pg.attachClear.addEventListener('click', clearAttachments);
+pg.fileBudget.addEventListener('change', () => { renderPromptGen(); scheduleOptionsSave(); });
+pg.attachList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-attach-remove]');
+  if (button) removeAttachment(button.dataset.attachRemove);
+});
+pg.attachDrop.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); chooseAttachments('files'); } });
+{
+  const view = $('#prompt-gen-view');
+  for (const name of ['dragenter', 'dragover']) view.addEventListener(name, (event) => { if (hasFilePayload(event)) { event.preventDefault(); view.classList.add('dragging'); } });
+  view.addEventListener('dragleave', (event) => { if (!view.contains(event.relatedTarget)) view.classList.remove('dragging'); });
+  view.addEventListener('drop', (event) => { if (hasFilePayload(event)) dropAttachments(event); });
+}
+pg.restore.addEventListener('click', restorePromptDefaults);
+renderPromptGen();
+// Ctrl + Enter copies the prompt from anywhere inside the tool.
+$('#prompt-gen-view').addEventListener('keydown', (event) => {
+  if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); copyPrompt(); }
+});
+
 function wireDropZone(element, addCallback, pathLoader = (paths) => window.arc.addPaths(paths)) {
   element.tabIndex = 0;
   element.setAttribute('role', 'group');
@@ -1646,35 +2198,6 @@ function wireDropZone(element, addCallback, pathLoader = (paths) => window.arc.a
 }
 
 document.addEventListener('paste', handleClipboardPaste);
-
-const toolTabs = $$('.tool-tab');
-toolTabs.forEach((button, index) => {
-  button.tabIndex = button.classList.contains('active') ? 0 : -1;
-  button.addEventListener('keydown', (event) => {
-    const keyMoves = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 };
-    if (!(event.key in keyMoves) && !['Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? toolTabs.length - 1 : (index + keyMoves[event.key] + toolTabs.length) % toolTabs.length;
-    toolTabs[nextIndex].click();
-    toolTabs[nextIndex].focus();
-  });
-  button.addEventListener('click', () => {
-    const tool = button.dataset.tool;
-    if (button.classList.contains('active')) return;
-    toolTabs.forEach((tab) => { const active = tab === button; tab.classList.toggle('active', active); tab.setAttribute('aria-selected', String(active)); tab.tabIndex = active ? 0 : -1; });
-    for (const view of $$('.tool-view')) {
-      const show = view.id === `${tool}-view`;
-      view.classList.toggle('hidden', !show);
-      if (show) { view.classList.remove('entering'); void view.offsetWidth; view.classList.add('entering'); }
-    }
-  });
-});
-// Ctrl/Cmd + 1…7 jump between tools
-document.addEventListener('keydown', (event) => {
-  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
-  const index = Number(event.key) - 1;
-  if (index >= 0 && index < toolTabs.length) { event.preventDefault(); toolTabs[index].click(); }
-});
 
 compressorElements.selectFiles.addEventListener('click', () => chooseCompressorFiles(false)); compressorElements.addMore.addEventListener('click', () => chooseCompressorFiles(false)); compressorElements.selectFolder.addEventListener('click', () => chooseCompressorFiles(true));
 compressorElements.selectOutput.addEventListener('click', () => chooseOutput(compressor, compressorElements.outputPath)); compressorElements.start.addEventListener('click', startOptimization); compressorElements.clear.addEventListener('click', resetCompressor); compressorElements.newBatch.addEventListener('click', resetCompressor); compressorElements.openOutput.addEventListener('click', () => window.arc.showOutput(compressor.batchPath || compressor.outputRoot));
@@ -1791,7 +2314,7 @@ receiverElements.start.addEventListener('click', startReceiverSession);
 receiverElements.stop.addEventListener('click', stopReceiverSession);
 receiverElements.selectOutput.addEventListener('click', async () => {
   const outputPath = await window.arc.selectReceiverOutput();
-  if (outputPath) { receiver.destinationRoot = outputPath; receiverElements.outputPath.value = outputPath; }
+  if (outputPath) { receiver.destinationRoot = outputPath; receiverElements.outputPath.value = outputPath; saveSettings({ paths: { receiver: outputPath } }); }
 });
 receiverElements.openOutput.addEventListener('click', () => window.arc.showOutput(receiver.destinationRoot));
 receiverElements.copyUrl.addEventListener('click', async () => {
@@ -1814,7 +2337,7 @@ senderElements.selectedList.addEventListener('click', (event) => {
 });
 wireDropZone(senderElements.dropZone, addSenderItems, (paths) => window.arc.addSenderPaths(paths));
 
-window.arc.defaultOutput().then((outputPath) => { compressor.outputRoot = outputPath; resizer.outputRoot = outputPath; converter.outputRoot = outputPath; renamer.outputRoot = outputPath; metadataCleaner.outputRoot = outputPath; compressorElements.outputPath.value = outputPath; resizeElements.outputPath.value = outputPath; converterElements.outputPath.value = outputPath; renamerElements.outputPath.value = outputPath; metadataElements.outputPath.value = outputPath; });
+loadSettings();
 window.arc.getUpdateState().then(renderUpdateState);
 window.arc.getReceiverState().then(renderReceiverState);
 window.arc.getSenderState().then(renderSenderState);

@@ -8,7 +8,7 @@ paths from, or redrawn after, Lucide Icons: `minimize-2`, `scaling`,
 `folder-open`, `plus`, `x`, `trash-2`, `check`, `triangle-alert`, `info`,
 `search`, `lock`, `lock-open`, `refresh-cw`, `map-pin`, `camera`, `sparkles`,
 `image`, `copy`, `pencil`, `arrow-right`, `download`, `zap`, `file`, `wifi`,
-`smartphone`, `qr-code`, and `send`.
+`smartphone`, `qr-code`, `send`, `chevron-down`, `video`, `audio-lines`, `layout-grid`, `file-text`, `merge`, `split`, `tag`, `hash`, and `ruler`.
 
 Lucide is distributed under the ISC License. Some Lucide icons are derived from
 Feather and remain available under the MIT License. All icons are stored inline

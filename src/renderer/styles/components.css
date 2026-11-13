@@ -270,7 +270,7 @@ kbd {
 /* ───────── Toast (paste feedback) & update popover — glass ───────── */
 .paste-toast {
   position: fixed; left: 50%; bottom: 108px; z-index: 50; max-width: min(520px, calc(100vw - 48px));
-  padding: 10px 16px; border-radius: var(--r-pill); font-size: var(--fs-md); font-weight: 520;
+  padding: 10px 16px; border-radius: 20px; font-size: var(--fs-md); font-weight: 520;
   background: var(--glass-tint), var(--glass-fill-strong); -webkit-backdrop-filter: var(--glass-blur); backdrop-filter: var(--glass-blur);
   box-shadow: var(--glass-shadow);
   opacity: 0; transform: translate(-50%, 10px) scale(0.98); pointer-events: none;

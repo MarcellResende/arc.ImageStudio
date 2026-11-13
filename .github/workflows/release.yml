@@ -1,4 +1,4 @@
-name: Publicar ARC Image Studio
+name: Publicar arc.Studio
 
 on:
   push:
@@ -45,7 +45,7 @@ jobs:
         run: |
           $tag = "${{ github.ref_name }}"
           $version = $tag.TrimStart('v')
-          $installer = "release/ARC-Image-Studio-Setup-$version.exe"
+          $installer = "release/arc.Studio-Setup-$version.exe"
           $blockmap = "$installer.blockmap"
           $manifest = "release/latest.yml"
           $assets = @($installer, $blockmap, $manifest)
@@ -58,7 +58,7 @@ jobs:
 
           gh release create $tag @assets `
             --repo "${{ github.repository }}" `
-            --title "ARC Image Studio $tag" `
+            --title "arc.Studio $tag" `
             --notes "Nova aba Enviar: transfira arquivos do PC para outros dispositivos pela rede local, com QR Code, downloads individuais ou Baixar tudo em ZIP, sem recompressão e sem nuvem." `
             --generate-notes `
             --verify-tag `

@@ -67,7 +67,7 @@ async function checkConnection() {
   try {
     const response = await fetch(`/health?token=${encodeURIComponent(token)}`, { cache: 'no-store' });
     if (!response.ok) throw new Error();
-    connection.textContent = 'Conectado ao ARC Image Studio';
+    connection.textContent = 'Conectado ao arc.Studio';
     connection.className = 'connection ok';
     input.disabled = false;
   } catch {

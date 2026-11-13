@@ -1,6 +1,6 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from 'electron';
-import { readdir, rm, stat } from 'node:fs/promises';
-import { rmSync } from 'node:fs';
+import { readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { existsSync, rmSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,11 +12,31 @@ import { cleanMetadataImage, inspectImageMetadata } from './metadata-cleaner.mjs
 import { convertImage, conversionPreview, isSupportedConversionInput } from './converter.mjs';
 import { saveClipboardImageItems } from './clipboard-image.mjs';
 import { buildRenamePreview, isSupportedRenameInput, renameBatch } from './renamer.mjs';
-import { WifiReceiver } from './wifi-receiver.mjs';
+import { WifiReceiver, sanitizeFileName } from './wifi-receiver.mjs';
 import { WifiSender } from './wifi-sender.mjs';
+import { SettingsStore } from './settings.mjs';
+import { collectAttachments } from './attachments.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = updaterPackage;
+
+/* Identity. The product is arc.Studio; the legacy name is kept only to find files from older versions. */
+const PRODUCT_NAME = 'arc.Studio';
+const LEGACY_PRODUCT_NAME = 'ARC Image Studio';
+app.setName(PRODUCT_NAME);
+// Preferences live in userData (outside the install folder), so updates and reinstalls never replace them.
+// ARC_STUDIO_USER_DATA lets automated tests use a throw-away profile instead of the real one.
+app.setPath('userData', process.env.ARC_STUDIO_USER_DATA || path.join(app.getPath('appData'), PRODUCT_NAME));
+
+const settings = new SettingsStore({
+  filePath: path.join(app.getPath('userData'), 'settings.json'),
+  onError: (error) => console.error('[settings]', error?.message || error)
+});
+const settingsLoad = settings.load();
+
+// One instance only: two copies would fight over the settings file, the receiver folder and the network sessions.
+const hasInstanceLock = app.requestSingleInstanceLock();
+if (!hasInstanceLock) app.quit();
 let updateState = {
   status: 'idle',
   currentVersion: app.getVersion(),
@@ -49,15 +69,29 @@ const wifiSender = new WifiSender({
   }
 });
 
+/* New installs save to Pictures/arc.Studio. If the user already has the old "ARC Image Studio" folder
+   (and no new one yet) keep using it, so existing batches are not split across two folders. */
+function defaultOutputRoot() {
+  const pictures = app.getPath('pictures');
+  const current = path.join(pictures, PRODUCT_NAME);
+  const legacy = path.join(pictures, LEGACY_PRODUCT_NAME);
+  return !existsSync(current) && existsSync(legacy) ? legacy : current;
+}
+
 function defaultReceiverOutput() {
-  return path.join(app.getPath('pictures'), 'ARC Image Studio', 'Recebidos');
+  return path.join(defaultOutputRoot(), 'Recebidos');
+}
+
+function savedReceiverOutput() {
+  const saved = settings.get().paths.receiver;
+  return saved && folderIsUsable(saved) ? saved : defaultReceiverOutput();
 }
 
 function publicReceiverState() {
   const state = wifiReceiver.publicState();
   return {
     ...state,
-    destinationRoot: state.destinationRoot || defaultReceiverOutput(),
+    destinationRoot: state.destinationRoot || savedReceiverOutput(),
     qrDataUrl: state.running ? receiverQrDataUrl : ''
   };
 }
@@ -163,13 +197,14 @@ function configureAutoUpdater() {
 }
 
 function createWindow() {
+  const saved = settings.get().window;
   const window = new BrowserWindow({
-    width: 1240,
-    height: 900,
+    width: saved.width,
+    height: saved.height,
     minWidth: 1000,
     minHeight: 720,
     backgroundColor: '#0d1119',
-    title: 'ARC Image Studio',
+    title: PRODUCT_NAME,
     icon: path.join(currentDirectory, 'renderer', 'assets', 'app.ico'),
     autoHideMenuBar: true,
     // Integrated title bar: the app toolbar doubles as the drag region; native caption buttons stay.
@@ -182,6 +217,20 @@ function createWindow() {
       sandbox: true
     }
   });
+
+  if (saved.maximized) window.maximize();
+  let boundsTimer = null;
+  const rememberBounds = () => {
+    clearTimeout(boundsTimer);
+    boundsTimer = setTimeout(() => {
+      if (window.isDestroyed() || window.isMinimized() || window.isFullScreen()) return;
+      const { width, height } = window.getNormalBounds();
+      settings.update({ window: { width, height, maximized: window.isMaximized() } });
+    }, 400);
+  };
+  for (const eventName of ['resize', 'maximize', 'unmaximize']) window.on(eventName, rememberBounds);
+  // Windows is shutting down or the user is logging off: no async work is guaranteed to finish.
+  window.on('session-end', () => { wifiReceiver.emergencyCleanup(); settings.flushSync(); });
 
   window.loadFile(path.join(currentDirectory, 'renderer', 'index.html'));
 }
@@ -247,17 +296,19 @@ async function scanAllFiles(root, directory = root, files = []) {
 }
 
 async function cleanupLegacyClipboardFiles() {
-  const clipboardRoot = path.join(app.getPath('temp'), 'ARC Image Studio', 'clipboard');
-  const entries = await readdir(clipboardRoot, { withFileTypes: true }).catch(() => []);
-  await Promise.all(entries
-    .filter((entry) => entry.isFile() && /^Imagem colada .+\.png$/i.test(entry.name))
-    .map((entry) => rm(path.join(clipboardRoot, entry.name), { force: true })));
+  for (const productName of [PRODUCT_NAME, LEGACY_PRODUCT_NAME]) {
+    const clipboardRoot = path.join(app.getPath('temp'), productName, 'clipboard');
+    const entries = await readdir(clipboardRoot, { withFileTypes: true }).catch(() => []);
+    await Promise.all(entries
+      .filter((entry) => entry.isFile() && /^Imagem colada .+\.png$/i.test(entry.name))
+      .map((entry) => rm(path.join(clipboardRoot, entry.name), { force: true })));
+  }
 }
 
 ipcMain.handle('clipboard:images', async () => {
   const clipboardItems = await clipboard.read();
   if (!clipboardSessionDirectory) {
-    clipboardSessionDirectory = path.join(app.getPath('temp'), 'ARC Image Studio', 'clipboard', `session-${process.pid}-${Date.now()}`);
+    clipboardSessionDirectory = path.join(app.getPath('temp'), PRODUCT_NAME, 'clipboard', `session-${process.pid}-${Date.now()}`);
   }
   const savedPaths = await saveClipboardImageItems(clipboardItems, clipboardSessionDirectory);
   return Promise.all(savedPaths.map((filePath) => fileEntry(filePath)));
@@ -366,13 +417,67 @@ ipcMain.handle('files:from-paths', async (_event, paths) => {
 
 ipcMain.handle('output:select', async () => {
   const result = await dialog.showOpenDialog({
-    title: 'Selecione onde salvar os lotes do ARC Image Studio',
+    title: 'Selecione onde salvar os lotes do arc.Studio',
     properties: ['openDirectory', 'createDirectory']
   });
   return result.canceled ? null : result.filePaths[0];
 });
 
-ipcMain.handle('output:default', () => path.join(app.getPath('pictures'), 'ARC Image Studio'));
+ipcMain.handle('output:default', () => defaultOutputRoot());
+
+/* A saved folder is usable if it exists or can be created (its parent exists). If it sits on a disk that is
+   not connected, the default is used for now and the saved choice is kept, so it returns with the disk. */
+function folderIsUsable(folder) {
+  return existsSync(folder) || existsSync(path.dirname(folder));
+}
+
+ipcMain.handle('settings:get', () => {
+  const saved = settings.get();
+  const defaults = { output: defaultOutputRoot(), receiverOutput: defaultReceiverOutput() };
+  const effectivePaths = {};
+  const unavailable = [];
+  for (const [key, folder] of Object.entries(saved.paths)) {
+    if (!folder) continue;
+    if (folderIsUsable(folder)) effectivePaths[key] = folder;
+    else unavailable.push(key);
+  }
+  return { settings: saved, effectivePaths, unavailable, firstRun: settingsLoad.firstRun, defaults };
+});
+ipcMain.handle('settings:update', (_event, patch) => settings.update(patch));
+
+/* Prompt Gen: files and folders to analyse. Only what the user picks or drops is read, locally. */
+ipcMain.handle('attachments:select', async (event, mode) => {
+  const folder = mode === 'folder';
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showOpenDialog(owner, {
+    title: folder ? 'Escolha uma pasta para analisar' : 'Escolha os arquivos para analisar',
+    properties: folder ? ['openDirectory', 'multiSelections'] : ['openFile', 'multiSelections']
+  });
+  return result.canceled ? null : collectAttachments(result.filePaths);
+});
+ipcMain.handle('attachments:from-paths', (_event, paths) => collectAttachments(paths));
+
+/* Prompt Gen: copy and save. Text only, size-capped, written as UTF-8 without BOM. */
+const MAX_PROMPT_BYTES = 2 * 1024 * 1024;
+ipcMain.handle('clipboard:write-text', (_event, text) => {
+  if (typeof text !== 'string' || !text || text.length > MAX_PROMPT_BYTES) return false;
+  clipboard.writeText(text);
+  return true;
+});
+ipcMain.handle('prompt:save', async (event, payload = {}) => {
+  const { text, suggestedName } = payload;
+  if (typeof text !== 'string' || !text.trim() || text.length > MAX_PROMPT_BYTES) throw new Error('Não há prompt para salvar.');
+  const fileName = sanitizeFileName(typeof suggestedName === 'string' && suggestedName ? suggestedName : 'prompt.md');
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showSaveDialog(owner, {
+    title: 'Salvar prompt',
+    defaultPath: path.join(app.getPath('documents'), fileName),
+    filters: [{ name: 'Markdown', extensions: ['md'] }, { name: 'Texto', extensions: ['txt'] }]
+  });
+  if (result.canceled || !result.filePath) return null;
+  await writeFile(result.filePath, `${text.replace(/\s+$/, '')}\n`, 'utf8');
+  return result.filePath;
+});
 
 ipcMain.handle('output:show', async (_event, outputPath) => {
   if (typeof outputPath === 'string' && outputPath) await shell.openPath(outputPath);
@@ -383,7 +488,7 @@ ipcMain.handle('receiver:default-output', () => defaultReceiverOutput());
 ipcMain.handle('receiver:select-output', async () => {
   const result = await dialog.showOpenDialog({
     title: 'Escolha onde salvar os arquivos recebidos',
-    defaultPath: wifiReceiver.destinationRoot || defaultReceiverOutput(),
+    defaultPath: wifiReceiver.destinationRoot || savedReceiverOutput(),
     properties: ['openDirectory', 'createDirectory']
   });
   return result.canceled ? null : result.filePaths[0];
@@ -391,7 +496,7 @@ ipcMain.handle('receiver:select-output', async () => {
 ipcMain.handle('receiver:start', async (_event, options = {}) => {
   const destinationRoot = typeof options.destinationRoot === 'string' && options.destinationRoot.trim()
     ? options.destinationRoot
-    : defaultReceiverOutput();
+    : savedReceiverOutput();
   const state = await wifiReceiver.start({ destinationRoot });
   receiverQrDataUrl = await QRCode.toDataURL(state.url, {
     errorCorrectionLevel: 'M',
@@ -548,7 +653,7 @@ ipcMain.handle('conversion:start', async (event, payload) => {
   if (Notification.isSupported()) {
     const successful = results.filter((result) => result?.ok).length;
     const notification = new Notification({
-      title: 'ARC Image Studio — conversão concluída',
+      title: 'arc.Studio — conversão concluída',
       body: `${successful} ${successful === 1 ? 'imagem convertida' : 'imagens convertidas'} em ${path.basename(batchPath)}.`,
       icon: path.join(currentDirectory, 'renderer', 'assets', 'app.ico')
     });
@@ -574,7 +679,7 @@ ipcMain.handle('rename:start', async (event, payload) => {
   if (Notification.isSupported()) {
     const successful = response.results.filter((result) => result.ok).length;
     const notification = new Notification({
-      title: 'ARC Image Studio — nomes atualizados',
+      title: 'arc.Studio — nomes atualizados',
       body: response.outputMode === 'original'
         ? `${successful} ${successful === 1 ? 'arquivo renomeado' : 'arquivos renomeados'} nos locais de origem.`
         : `${successful} ${successful === 1 ? 'cópia renomeada' : 'cópias renomeadas'} em ${path.basename(response.batchPath)}.`,
@@ -642,7 +747,7 @@ ipcMain.handle('optimize:start', async (event, payload) => {
   if (Notification.isSupported()) {
     const successful = results.filter((result) => result?.ok).length;
     const notification = new Notification({
-      title: 'ARC Image Studio — concluído',
+      title: 'arc.Studio — concluído',
       body: `${successful} ${successful === 1 ? 'imagem pronta' : 'imagens prontas'} em ${path.basename(batchPath)}.`,
       icon: path.join(currentDirectory, 'renderer', 'assets', 'app.ico')
     });
@@ -696,7 +801,7 @@ ipcMain.handle('resize:start', async (event, payload) => {
   if (Notification.isSupported()) {
     const successful = results.filter((result) => result?.ok).length;
     const notification = new Notification({
-      title: 'ARC Image Studio — concluído',
+      title: 'arc.Studio — concluído',
       body: `${successful} ${successful === 1 ? 'imagem redimensionada' : 'imagens redimensionadas'} em ${path.basename(batchPath)}.`,
       icon: path.join(currentDirectory, 'renderer', 'assets', 'app.ico')
     });
@@ -749,7 +854,7 @@ ipcMain.handle('metadata:start', async (event, payload) => {
   if (Notification.isSupported()) {
     const successful = results.filter((result) => result?.ok).length;
     const notification = new Notification({
-      title: 'ARC Image Studio — metadados removidos',
+      title: 'arc.Studio — metadados removidos',
       body: `${successful} ${successful === 1 ? 'imagem protegida' : 'imagens protegidas'} em ${path.basename(batchPath)}.`,
       icon: path.join(currentDirectory, 'renderer', 'assets', 'app.ico')
     });
@@ -760,24 +865,47 @@ ipcMain.handle('metadata:start', async (event, payload) => {
   return { results, batchPath };
 });
 
-app.whenReady().then(() => {
-  cleanupLegacyClipboardFiles().catch(() => {});
-  createWindow();
-  configureAutoUpdater();
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+app.on('second-instance', () => {
+  const [window] = BrowserWindow.getAllWindows();
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.focus();
 });
+
+if (hasInstanceLock) {
+  app.whenReady().then(() => {
+    cleanupLegacyClipboardFiles().catch(() => {});
+    createWindow();
+    configureAutoUpdater();
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
+  });
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit();
 });
 
+/* Closing the app ends the Wi-Fi sessions first: the ports close, in-flight transfers are cut and their
+   partial files are deleted. quit is held back (briefly) until that is done, then resumed. */
+let shutdownStarted = false;
+app.on('before-quit', (event) => {
+  if (shutdownStarted) return;
+  shutdownStarted = true;
+  event.preventDefault();
+  const grace = new Promise((resolve) => setTimeout(resolve, 5000));
+  Promise.race([Promise.allSettled([wifiReceiver.stop(), wifiSender.stop()]), grace]).finally(() => {
+    wifiReceiver.emergencyCleanup();
+    settings.flushSync();
+    app.quit();
+  });
+});
+
 app.on('will-quit', () => {
-  wifiReceiver.stop().catch(() => {});
-  wifiSender.stop().catch(() => {});
+  settings.flushSync();
   if (!clipboardSessionDirectory) return;
-  const clipboardRoot = path.resolve(app.getPath('temp'), 'ARC Image Studio', 'clipboard');
+  const clipboardRoot = path.resolve(app.getPath('temp'), PRODUCT_NAME, 'clipboard');
   const sessionPath = path.resolve(clipboardSessionDirectory);
   if (sessionPath.startsWith(`${clipboardRoot}${path.sep}`)) {
     try { rmSync(sessionPath, { recursive: true, force: true }); } catch {}

@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
-import { createWriteStream } from 'node:fs';
-import { mkdir, readFile, rename, stat, unlink } from 'node:fs/promises';
+import { createWriteStream, unlinkSync } from 'node:fs';
+import { mkdir, readFile, readdir, rename, stat, unlink } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { networkInterfaces } from 'node:os';
 import path from 'node:path';
@@ -13,6 +13,8 @@ const MOBILE_JS = new URL('./receiver/mobile.js', import.meta.url);
 const MAX_FILE_BYTES = 20 * 1024 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOADS = 4;
 const MAX_SESSION_FILES = 10000;
+const STOP_WAIT_MS = 3000;
+export const PARTIAL_FILE_PATTERN = /^.arc-receiving-[0-9a-f]{20}.part$/;
 
 export function isPrivateIpv4(address) {
   const parts = String(address).split('.').map(Number);
@@ -95,6 +97,19 @@ function sendJson(response, status, value) {
   send(response, status, JSON.stringify(value));
 }
 
+/* A previous run that was killed (crash, power loss) can leave half-written transfers behind.
+   The app is single-instance, so every matching file in the destination is orphaned. */
+export async function removeStalePartialFiles(directory) {
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  let removed = 0;
+  for (const entry of entries) {
+    if (entry.isFile() && PARTIAL_FILE_PATTERN.test(entry.name)) {
+      await unlink(path.join(directory, entry.name)).then(() => { removed += 1; }).catch(() => {});
+    }
+  }
+  return removed;
+}
+
 export class WifiReceiver {
   constructor({ onEvent = () => {}, maxFileBytes = MAX_FILE_BYTES } = {}) {
     this.onEvent = onEvent;
@@ -110,6 +125,8 @@ export class WifiReceiver {
     this.receivedBytes = 0;
     this.reservedPaths = new Set();
     this.sockets = new Set();
+    this.transfers = new Set();
+    this.temporaryPaths = new Set();
     this.mobileAssets = null;
   }
 
@@ -138,6 +155,7 @@ export class WifiReceiver {
     if (!candidates.length) throw new Error('Nenhuma rede local ativa foi encontrada. Conecte o PC ao Wi-Fi e tente novamente.');
 
     await mkdir(destinationRoot, { recursive: true });
+    await removeStalePartialFiles(destinationRoot);
     this.mobileAssets = this.mobileAssets || await Promise.all([
       readFile(MOBILE_ROOT, 'utf8'), readFile(MOBILE_CSS, 'utf8'), readFile(MOBILE_JS, 'utf8')
     ]);
@@ -182,8 +200,12 @@ export class WifiReceiver {
     if (!server) return this.publicState();
     this.server = null;
     for (const socket of this.sockets) socket.destroy();
+    server.closeAllConnections?.();
     await new Promise((resolve) => server.close(() => resolve())).catch(() => {});
     this.sockets.clear();
+    // Let in-flight uploads finish their own clean-up (they delete their .part file when the socket dies).
+    await Promise.race([Promise.allSettled([...this.transfers]), new Promise((resolve) => setTimeout(resolve, STOP_WAIT_MS).unref?.())]);
+    this.emergencyCleanup();
     this.token = '';
     this.port = 0;
     this.addresses = [];
@@ -191,6 +213,14 @@ export class WifiReceiver {
     const state = this.publicState();
     this.onEvent({ type: 'session-stopped', state });
     return state;
+  }
+
+  /* Synchronous last resort used on the quit path: remove any .part file still tracked. */
+  emergencyCleanup() {
+    for (const temporaryPath of this.temporaryPaths) {
+      try { unlinkSync(temporaryPath); } catch { /* already gone */ }
+    }
+    this.temporaryPaths.clear();
   }
 
   async handleRequest(request, response) {
@@ -225,6 +255,10 @@ export class WifiReceiver {
     const destinationPath = await availableDestination(this.destinationRoot, fileName, this.reservedPaths);
     const temporaryPath = path.join(this.destinationRoot, `.arc-receiving-${transferId}.part`);
     const hash = createHash('sha256');
+    let finishTransfer = () => {};
+    const tracked = new Promise((resolve) => { finishTransfer = resolve; });
+    this.transfers.add(tracked);
+    this.temporaryPaths.add(temporaryPath);
     let receivedBytes = 0;
     let lastProgressAt = 0;
     this.activeUploads += 1;
@@ -269,6 +303,9 @@ export class WifiReceiver {
     } finally {
       this.activeUploads = Math.max(0, this.activeUploads - 1);
       this.reservedPaths.delete(destinationPath.toLowerCase());
+      this.temporaryPaths.delete(temporaryPath);
+      this.transfers.delete(tracked);
+      finishTransfer();
     }
   }
 }
