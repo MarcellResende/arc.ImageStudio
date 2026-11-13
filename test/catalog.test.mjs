@@ -20,12 +20,12 @@ test('the catalog follows the requested structure', async () => {
   const catalog = await loadCatalog();
   const summary = Object.fromEntries(catalog.map((category) => [category.label, category.tools.map((tool) => tool.label)]));
   assert.deepEqual(summary, {
-    Imagem: ['Compressor', 'Resizer', 'Conversor', 'Renomeador', 'Metadados', 'Receber', 'Enviar'],
+    Imagem: ['Compressor', 'Resizer', 'Conversor', 'Renomeador', 'Metadados'],
     IA: ['Prompt Gen', 'CLAUDE.md'],
     PDF: ['Compressor', 'Conversor', 'Mesclar', 'Dividir'],
     Vídeo: ['Compressor', 'Conversor', 'Extrair Áudio'],
     Áudio: ['Conversor', 'Compressor', 'Editor de Metadados'],
-    Utilitários: ['Gerador de QR Code', 'Hash de Arquivos', 'Conversor de Unidades']
+    Utilitários: ['Receber', 'Enviar', 'Gerador de QR Code', 'Hash de Arquivos', 'Conversor de Unidades']
   });
 });
 
@@ -34,8 +34,8 @@ test('only the existing image tools are ready; every other tool is announced as 
   for (const category of catalog) {
     for (const tool of category.tools) {
       assert.ok(['ready', 'soon'].includes(tool.status), `${tool.id}: status inválido`);
-      const expectedReady = category.id === 'image' || tool.id === 'prompt-gen';
-      assert.equal(tool.status === 'ready', expectedReady, `${tool.id}: só as ferramentas de Imagem e o Prompt Gen estão prontos`);
+      const expectedReady = category.id === 'image' || ['prompt-gen', 'claude-md', 'receiver', 'sender'].includes(tool.id);
+      assert.equal(tool.status === 'ready', expectedReady, `${tool.id}: só as ferramentas de Imagem, Prompt Gen, CLAUDE.md, Receber e Enviar estão prontas`);
     }
   }
 });

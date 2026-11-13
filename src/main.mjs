@@ -16,6 +16,7 @@ import { WifiReceiver, sanitizeFileName } from './wifi-receiver.mjs';
 import { WifiSender } from './wifi-sender.mjs';
 import { SettingsStore } from './settings.mjs';
 import { collectAttachments } from './attachments.mjs';
+import { analyzeProject } from './project-analyzer.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = updaterPackage;
@@ -456,6 +457,31 @@ ipcMain.handle('attachments:select', async (event, mode) => {
   return result.canceled ? null : collectAttachments(result.filePaths);
 });
 ipcMain.handle('attachments:from-paths', (_event, paths) => collectAttachments(paths));
+
+/* CLAUDE.md generator: analyse a project folder the user picked or dropped (read-only, local). */
+ipcMain.handle('project:select', async (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showOpenDialog(owner, { title: 'Escolha a pasta do projeto', properties: ['openDirectory'] });
+  return result.canceled ? null : analyzeProject(result.filePaths[0]);
+});
+ipcMain.handle('project:analyze', (_event, folder) => {
+  if (typeof folder !== 'string' || !folder) throw new Error('Escolha uma pasta de projeto.');
+  return analyzeProject(folder);
+});
+ipcMain.handle('claudemd:save', async (event, payload = {}) => {
+  const { text, directory } = payload;
+  if (typeof text !== 'string' || !text.trim() || text.length > 2 * 1024 * 1024) throw new Error('Não há CLAUDE.md para salvar.');
+  const folder = typeof directory === 'string' && directory && existsSync(directory) ? directory : app.getPath('documents');
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showSaveDialog(owner, {
+    title: 'Salvar CLAUDE.md',
+    defaultPath: path.join(folder, 'CLAUDE.md'),
+    filters: [{ name: 'Markdown', extensions: ['md'] }]
+  });
+  if (result.canceled || !result.filePath) return null;
+  await writeFile(result.filePath, `${text.replace(/\s+$/, '')}\n`, 'utf8');
+  return result.filePath;
+});
 
 /* Prompt Gen: copy and save. Text only, size-capped, written as UTF-8 without BOM. */
 const MAX_PROMPT_BYTES = 2 * 1024 * 1024;

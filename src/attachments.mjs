@@ -15,7 +15,7 @@ export const LIMITS = {
   maxTotalBytes: 12 * 1024 * 1024
 };
 
-const IGNORED_DIRECTORIES = new Set([
+export const IGNORED_DIRECTORIES = new Set([
   'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'release', '.next', '.nuxt', '.cache', '__pycache__', '.venv', 'venv',
   'target', 'bin', 'obj', '.idea', 'coverage', '.gradle', 'pods', 'vendor', '.pytest_cache', '.mypy_cache', '.terraform', '.parcel-cache', '.turbo'
 ]);

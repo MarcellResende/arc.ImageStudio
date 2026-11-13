@@ -1668,7 +1668,8 @@ function collectOptions() {
       target: pg.target.value, style: promptGen.style, promptLanguage: promptGen.promptLanguage, responseLanguage: pg.responseLanguage.value,
       clarify: pg.clarify.value, reasoning: pg.reasoning.checked, grounding: pg.grounding.checked, verify: pg.verify.checked,
       fileBudget: Number(pg.fileBudget.value)
-    }
+    },
+    claudeMd: { language: claudeMd.language, detail: cm.detail.value, includeExisting: cm.includeExisting.checked, premisesOff: claudeMd.premisesOff }
   };
 }
 
@@ -1744,6 +1745,10 @@ async function loadSettings() {
     promptGen.style = g.style; promptGen.promptLanguage = g.promptLanguage; setBudgetSelect(g.fileBudget);
     for (const key of PG_DRAFT_FIELDS) pg[key].value = settings.promptDraft[key] || '';
     syncPromptSegments(); renderPromptGen();
+
+    const m = settings.claudeMd;
+    claudeMd.premisesOff = [...m.premisesOff]; cm.detail.value = m.detail; cm.includeExisting.checked = m.includeExisting;
+    setClaudeLanguage(m.language); renderClaudeMd();
 
     window.ArcNav?.show(settings.ui.lastTool, { animate: false });
   }
@@ -2176,6 +2181,209 @@ renderPromptGen();
 $('#prompt-gen-view').addEventListener('keydown', (event) => {
   if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); copyPrompt(); }
 });
+
+/* ───────── CLAUDE.md generator ─────────
+   The project folder is analysed by the main process (read-only, local); the engine (claude-md-engine.js) builds the
+   document from those facts + what the user typed. Only the options are saved; project text stays in memory. */
+const claudeMd = { facts: null, folder: '', result: null, language: 'pt', premisesOff: [], timer: 0 };
+const CM = window.ArcClaudeMd;
+const cm = {
+  main: $('#cm-main'), drop: $('#cm-drop'), pick: $('#cm-pick'), card: $('#cm-card'), projectName: $('#cm-project-name'), projectPath: $('#cm-project-path'), stack: $('#cm-stack'),
+  cardStats: $('#cm-card-stats'), reanalyze: $('#cm-reanalyze'), forget: $('#cm-forget'), hint: $('#cm-hint'),
+  name: $('#cm-name'), audience: $('#cm-audience'), purpose: $('#cm-purpose'), prohibitions: $('#cm-prohibitions'), rules: $('#cm-rules'),
+  commands: $('#cm-commands'), gotchas: $('#cm-gotchas'), architecture: $('#cm-architecture'), workflow: $('#cm-workflow'), workPreferences: $('#cm-work-preferences'),
+  more: $('#cm-more'), moreCount: $('#cm-more-count'), premises: $('#cm-premises'), premisesCount: $('#cm-premises-count'),
+  output: $('#cm-output'), outputMeta: $('#cm-output-meta'), score: $('#cm-score'), scoreLabel: $('#cm-score-label'), barFill: $('#cm-bar-fill'), scoreBox: $('#cm-score-box'),
+  checklist: $('#cm-checklist'), alerts: $('#cm-alerts'), questionsSec: $('#cm-questions-sec'), questions: $('#cm-questions'), sections: $('#cm-sections'),
+  langSeg: $('#cm-lang-seg'), detail: $('#cm-detail'), existingRow: $('#cm-existing-row'), includeExisting: $('#cm-include-existing'),
+  statsMain: $('#cm-stats-main'), statsDetail: $('#cm-stats-detail'), clear: $('#cm-clear'), save: $('#cm-save'), copy: $('#cm-copy')
+};
+const CM_TEXT_FIELDS = ['name', 'audience', 'purpose', 'prohibitions', 'rules', 'commands', 'gotchas', 'architecture', 'workflow', 'workPreferences'];
+const CM_SOURCE_LABEL = { detected: 'detectado', user: 'informado', mixed: 'misto', default: 'premissa' };
+const CM_FOCUS = { purpose: 'purpose', prohibitions: 'prohibitions', gotchas: 'gotchas', commands: 'commands', rules: 'rules', project: 'drop' };
+
+function readClaudeInput() {
+  return {
+    ...Object.fromEntries(CM_TEXT_FIELDS.map((key) => [key, cm[key].value])),
+    language: claudeMd.language, detail: cm.detail.value, includeExisting: cm.includeExisting.checked, premisesOff: claudeMd.premisesOff
+  };
+}
+
+function renderPremises() {
+  const premises = CM.PREMISES;
+  cm.premises.innerHTML = premises.map((premise) => `<label class="cm-premise"><input type="checkbox" data-premise="${premise.id}"${claudeMd.premisesOff.includes(premise.id) ? '' : ' checked'}><span class="cm-check"><svg class="i i-xs" aria-hidden="true"><use href="#i-check"/></svg></span><span>${escapeHtml(premise[claudeMd.language])}</span></label>`).join('');
+  const on = premises.length - claudeMd.premisesOff.length;
+  cm.premisesCount.textContent = `${on} de ${premises.length}`;
+}
+
+function renderClaudeMd() {
+  const result = CM.generate(claudeMd.facts, readClaudeInput());
+  claudeMd.result = result;
+
+  const fragment = document.createDocumentFragment();
+  let inFence = false;
+  for (const line of result.markdown.split('\n')) {
+    const span = document.createElement('span');
+    if (/^```/.test(line)) { inFence = !inFence; span.className = 'pg-tag'; } else if (!inFence && /^#{1,6} /.test(line)) span.className = 'pg-tag';
+    span.textContent = line;
+    fragment.append(span, '\n');
+  }
+  cm.output.replaceChildren(fragment);
+  cm.outputMeta.textContent = `${result.stats.lines} linhas · ≈ ${result.stats.tokens.toLocaleString('pt-BR')} tokens`;
+  cm.statsMain.textContent = `${result.stats.lines} linhas · ≈ ${result.stats.tokens.toLocaleString('pt-BR')} tokens`;
+  cm.statsDetail.textContent = `${claudeMd.facts ? claudeMd.facts.name : 'sem projeto'} · ${claudeMd.language === 'en' ? 'English' : 'Português'} · completude ${result.analysis.score}/100`;
+  cm.copy.disabled = false;
+  cm.save.disabled = false;
+
+  const { analysis } = result;
+  const level = analysis.score >= 85 ? 'great' : analysis.score >= 70 ? 'good' : analysis.score >= 50 ? 'fair' : 'low';
+  cm.scoreBox.dataset.level = level;
+  cm.score.textContent = String(analysis.score);
+  cm.scoreLabel.textContent = analysis.label;
+  cm.barFill.style.width = `${analysis.score}%`;
+  cm.checklist.innerHTML = analysis.items.map((item) => `<li><button type="button" class="pg-check ${item.status}" data-cm-focus="${escapeHtml(item.field)}" title="${escapeHtml(item.detail)}">`
+    + `<span class="pg-check-icon"><svg class="i i-xs" aria-hidden="true"><use href="#i-${PG_STATUS_ICON[item.status]}"/></svg></span>`
+    + `<span class="pg-check-copy"><strong>${escapeHtml(item.label)}</strong>${item.status === 'ok' ? '' : `<small>${escapeHtml(item.detail)}</small>`}</span><em>${PG_STATUS_TEXT[item.status]}</em></button></li>`).join('');
+  cm.alerts.innerHTML = analysis.alerts.map((alert) => `<div class="callout ${alert.level === 'warn' ? 'callout-warn' : ''}"><svg class="i" aria-hidden="true"><use href="#i-${alert.level === 'warn' ? 'alert' : 'info'}"/></svg><span>${escapeHtml(alert.text)}</span></div>`).join('');
+  cm.questionsSec.classList.toggle('hidden', !analysis.questions.length);
+  cm.questions.innerHTML = analysis.questions.map((question) => `<li><button type="button" data-cm-focus="${escapeHtml(question.field)}"><svg class="i i-xs" aria-hidden="true"><use href="#i-arrow-right"/></svg><span>${escapeHtml(question.text)}</span></button></li>`).join('');
+  cm.sections.innerHTML = result.sections.map((section) => `<li><span>${escapeHtml(section.title)}</span><span class="cm-src ${section.source}">${CM_SOURCE_LABEL[section.source]}</span></li>`).join('');
+  cm.existingRow.classList.toggle('hidden', !result.existing.claude && !(claudeMd.facts?.existing?.claude));
+  updateClaudeMoreCount();
+}
+
+function updateClaudeMoreCount() {
+  const filled = ['commands', 'gotchas', 'architecture', 'workflow', 'workPreferences'].filter((key) => cm[key].value.trim()).length;
+  cm.moreCount.textContent = `${filled} ${filled === 1 ? 'preenchido' : 'preenchidos'}`;
+  cm.moreCount.classList.toggle('hidden', !filled);
+}
+
+function renderProjectCard() {
+  const facts = claudeMd.facts;
+  cm.card.classList.toggle('hidden', !facts);
+  cm.drop.classList.toggle('hidden', Boolean(facts));
+  if (!facts) return;
+  cm.projectName.textContent = facts.name;
+  cm.projectPath.textContent = facts.root;
+  cm.projectPath.title = facts.root;
+  const chips = unique3([...facts.ecosystems.filter((item) => item.id !== 'make').map((item) => item.name), ...facts.frameworks]).slice(0, 8);
+  cm.stack.innerHTML = chips.map((text) => `<span class="chip chip-accent">${escapeHtml(text)}</span>`).join('');
+  const lines = facts.languages.reduce((sum, item) => sum + item.lines, 0);
+  const parts = [`${facts.scanned.toLocaleString('pt-BR')} arquivos lidos`, `${formatCount(lines)} linhas de código`];
+  if (facts.skippedDirectories.length) parts.push(`ignoradas: ${facts.skippedDirectories.slice(0, 4).join(', ')}`);
+  if (facts.existing?.claude) parts.push('já tem CLAUDE.md');
+  cm.cardStats.textContent = `${parts.join(' · ')}.`;
+}
+
+function unique3(items) { return [...new Set(items)]; }
+
+function scheduleClaudeRender() {
+  clearTimeout(claudeMd.timer);
+  claudeMd.timer = setTimeout(renderClaudeMd, 90);
+}
+
+async function loadProject(promise) {
+  try {
+    const facts = await promise;
+    if (!facts) return;
+    claudeMd.facts = facts;
+    claudeMd.folder = facts.root;
+    renderProjectCard();
+    renderClaudeMd();
+    showPasteToast(`Projeto analisado: ${facts.name}.`);
+  } catch (error) {
+    showPasteToast(error?.message || 'Não foi possível analisar a pasta.', 'error');
+  }
+}
+
+function setClaudeLanguage(language) {
+  claudeMd.language = language;
+  for (const button of cm.langSeg.querySelectorAll('[data-cm-lang]')) button.classList.toggle('active', button.dataset.cmLang === language);
+  syncSeg(cm.langSeg);
+  renderPremises();
+}
+
+async function copyClaudeMd() {
+  const text = claudeMd.result?.markdown;
+  if (!text) return;
+  let copied = false;
+  try { copied = await window.arc.writeClipboardText(text); } catch { copied = false; }
+  showPasteToast(copied ? 'CLAUDE.md copiado para a área de transferência.' : 'Não foi possível copiar.', copied ? 'success' : 'error');
+  if (copied) { const label = cm.copy.querySelector('span'); label.textContent = 'Copiado'; setTimeout(() => { label.textContent = 'Copiar'; }, 1600); }
+}
+
+async function saveClaudeMd() {
+  const text = claudeMd.result?.markdown;
+  if (!text) return;
+  try {
+    const savedPath = await window.arc.saveClaudeMd({ text, directory: claudeMd.folder });
+    if (savedPath) showPasteToast(`CLAUDE.md salvo em ${savedPath}`);
+  } catch (error) { showPasteToast(error?.message || 'Não foi possível salvar.', 'error'); }
+}
+
+function clearClaudeForm() {
+  const filled = CM_TEXT_FIELDS.some((key) => cm[key].value.trim()) || claudeMd.facts;
+  if (filled && !window.confirm('Limpar os campos e o projeto analisado?')) return;
+  for (const key of CM_TEXT_FIELDS) cm[key].value = '';
+  claudeMd.facts = null; claudeMd.folder = '';
+  renderProjectCard(); renderClaudeMd();
+}
+
+function setClaudePane(pane) {
+  cm.main.dataset.pane = pane;
+  $$('[data-cm-pane]').forEach((button) => button.classList.toggle('active', button.dataset.cmPane === pane));
+  syncSeg($('#cm-main .pg-tabs'));
+}
+
+function focusClaudeField(name) {
+  const key = CM_FOCUS[name] || 'purpose';
+  const element = key === 'drop' ? cm.drop : cm[key];
+  if (!element) return;
+  setClaudePane('form');
+  if (cm.more.contains(element)) cm.more.open = true;
+  element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  element.focus({ preventScroll: true });
+}
+
+for (const key of CM_TEXT_FIELDS) {
+  cm[key].addEventListener('input', scheduleClaudeRender);
+}
+cm.detail.addEventListener('change', () => { renderClaudeMd(); scheduleOptionsSave(); });
+cm.includeExisting.addEventListener('change', renderClaudeMd);
+cm.langSeg.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-cm-lang]');
+  if (button) { setClaudeLanguage(button.dataset.cmLang); renderClaudeMd(); scheduleOptionsSave(); }
+});
+cm.premises.addEventListener('change', (event) => {
+  const box = event.target.closest('[data-premise]');
+  if (!box) return;
+  claudeMd.premisesOff = box.checked ? claudeMd.premisesOff.filter((id) => id !== box.dataset.premise) : [...new Set([...claudeMd.premisesOff, box.dataset.premise])];
+  renderPremises(); renderClaudeMd(); scheduleOptionsSave();
+});
+cm.pick.addEventListener('click', () => loadProject(window.arc.selectProject()));
+cm.drop.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadProject(window.arc.selectProject()); } });
+cm.reanalyze.addEventListener('click', () => { if (claudeMd.folder) loadProject(window.arc.analyzeProject(claudeMd.folder)); });
+cm.forget.addEventListener('click', () => { claudeMd.facts = null; claudeMd.folder = ''; renderProjectCard(); renderClaudeMd(); });
+cm.copy.addEventListener('click', copyClaudeMd);
+cm.save.addEventListener('click', saveClaudeMd);
+cm.clear.addEventListener('click', clearClaudeForm);
+$$('[data-cm-pane]').forEach((button) => button.addEventListener('click', () => setClaudePane(button.dataset.cmPane)));
+document.addEventListener('click', (event) => { const trigger = event.target.closest?.('[data-cm-focus]'); if (trigger) focusClaudeField(trigger.dataset.cmFocus); });
+{
+  const view = $('#claude-md-view');
+  for (const name of ['dragenter', 'dragover']) view.addEventListener(name, (event) => { if (hasFilePayload(event)) { event.preventDefault(); view.classList.add('dragging'); } });
+  view.addEventListener('dragleave', (event) => { if (!view.contains(event.relatedTarget)) view.classList.remove('dragging'); });
+  view.addEventListener('drop', (event) => {
+    if (!hasFilePayload(event)) return;
+    event.preventDefault(); view.classList.remove('dragging');
+    const [file] = [...event.dataTransfer.files];
+    const folder = file && window.arc.getPathForFile(file);
+    if (folder) loadProject(window.arc.analyzeProject(folder));
+  });
+  view.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); copyClaudeMd(); } });
+}
+renderPremises();
+renderClaudeMd();
 
 function wireDropZone(element, addCallback, pathLoader = (paths) => window.arc.addPaths(paths)) {
   element.tabIndex = 0;

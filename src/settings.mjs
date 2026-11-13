@@ -16,6 +16,8 @@ const int = (min, max) => (value, fallback) => (Number.isInteger(value) && value
 const text = (max) => (value, fallback) => (typeof value === 'string' && value.length <= max && !/[\u0000-\u001f]/.test(value) ? value : fallback);
 /* Free text that may span lines (tab, CR and LF are fine; other control characters are not). */
 const multiline = (max) => (value, fallback) => (typeof value === 'string' && value.length <= max && !/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/.test(value) ? value : fallback);
+const idList = (allowed, max) => (value, fallback) => (Array.isArray(value) && value.length <= max && value.every((item) => allowed.includes(item)) ? [...new Set(value)] : fallback);
+export const CLAUDE_MD_PREMISE_IDS = ['read-first', 'match-style', 'small-diffs', 'verify', 'tests-with-code', 'ask-destructive', 'no-deps', 'no-commit', 'no-docs', 'no-secrets', 'honest', 'concise', 'language'];
 const color = (value, fallback) => (typeof value === 'string' && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : fallback);
 
 export function isAbsoluteDirectory(value) {
@@ -74,6 +76,13 @@ export const SCHEMA = {
     grounding: [bool, true],
     verify: [bool, true],
     fileBudget: [int(0, 200000), 16000]
+  },
+  /* CLAUDE.md generator: only options are saved. What you type about a project stays in memory (it is project-specific). */
+  claudeMd: {
+    language: [enumOf('pt', 'en'), 'pt'],
+    detail: [enumOf('compact', 'standard', 'detailed'), 'standard'],
+    includeExisting: [bool, true],
+    premisesOff: [idList(CLAUDE_MD_PREMISE_IDS, 20), []]
   },
   promptDraft: {
     idea: [multiline(20000), ''],

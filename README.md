@@ -4,7 +4,7 @@
 
 # arc.Studio
 
-Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa: compressor, resizer, conversor de formatos, renomeador, limpeza de metadados e transferência de arquivos pela rede local. Na categoria **IA** já existe o **Prompt Gen**. PDF, Vídeo, Áudio e Utilitários têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
+Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa (compressor, resizer, conversor de formatos, renomeador e limpeza de metadados), **Utilitários** já tem **Receber** e **Enviar** arquivos pela rede local, e **IA** tem o **Prompt Gen** e o gerador de **CLAUDE.md**. PDF, Vídeo, Áudio e o restante de Utilitários têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
 
 ## Como usar
 
@@ -99,6 +99,19 @@ Monta um prompt bem estruturado a partir de uma ideia, **sem usar outra IA e sem
 8. **Restaurar padrão** (barra inferior) volta às configurações mais comuns: ChatGPT, mensagem de texto simples, em português.
 
 Copiar (Ctrl + Enter) ou salvar como `.md`/`.txt` (UTF-8, sem BOM). O motor organiza o que você escreveu e preenche lacunas com padrões do tipo de tarefa; ele **não entende** o assunto, e por isso mostra o que deduziu para você corrigir.
+
+### CLAUDE.md
+
+Cria o arquivo de instruções que o Claude Code lê ao abrir um projeto, **a partir da análise da pasta inteira e do que você informar**, sem usar IA e sem enviar nada para a internet (`src/project-analyzer.mjs` lê a pasta; `src/renderer/claude-md-engine.js` monta o documento).
+
+1. **Escolha ou arraste a pasta do projeto.** A análise é só leitura e detecta: ecossistema e gerenciador de pacotes (pelos manifestos e lockfiles), comandos (scripts do `package.json`, Makefile, Cargo, Go, Python…), frameworks, pontos de entrada, mapa de pastas com a função de cada uma, testes, estilo de código amostrado (indentação, aspas, ponto e vírgula, módulos, nomes de arquivo, TypeScript estrito, EditorConfig), CI (`.github/workflows`), nomes das variáveis de ambiente, branch/remoto do git e convenção de commits, README, licença, Docker, monorepo e instruções já existentes (CLAUDE.md, AGENTS.md, `.cursorrules`).
+2. **Você informa o que quiser**: objetivo, o que a IA nunca deve fazer, regras, comandos extras, armadilhas, arquitetura, fluxo de trabalho e preferências. O que você escreve sempre vence o que foi detectado.
+3. **Sem informar nada**, valem **13 premissas padrão** (ler antes de editar, seguir o estilo existente, mudanças pequenas, verificar antes de concluir, testes junto com o código, perguntar antes de ações destrutivas, sem dependências novas, sem commit/push sem pedido, sem criar documentação, sem segredos, honestidade sobre o que foi verificado, respostas concisas, idioma). Cada uma pode ser desligada na tela.
+4. **Mostra a origem de cada seção** (detectado, informado, misto ou premissa), uma pontuação de completude com o que falta e perguntas que levam ao campo certo. Há três níveis de detalhe (compacto, padrão, detalhado), português ou inglês, e avisa quando o arquivo passa de ~200 linhas.
+5. Se o projeto **já tem um CLAUDE.md**, ele é mantido na seção "Notas anteriores" (opcional) e o aviso de sobrescrita aparece antes de salvar.
+6. **Privacidade:** `.env`, chaves e certificados **nunca são abertos** (só o nome das variáveis vem de `.env.example`); credenciais na URL do git são removidas; `node_modules`, `.git`, builds e arquivos gerados são ignorados; links simbólicos não são seguidos. Só as opções (idioma, detalhe, premissas) são lembradas; o texto digitado e o projeto analisado ficam apenas na memória.
+
+Copiar (Ctrl + Enter) ou **Salvar CLAUDE.md** (UTF-8, sem BOM; a pasta do projeto vem sugerida). O resultado é um ponto de partida deduzido do código: revise antes de confiar, principalmente objetivo e armadilhas.
 
 ## Recursos
 

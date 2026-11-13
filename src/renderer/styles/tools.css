@@ -320,7 +320,8 @@
 .field > textarea::placeholder { color: var(--text-3); opacity: 0.8; }
 .pg-mono { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace !important; font-size: 12px !important; line-height: 1.55 !important; }
 
-.pg-tabs { display: none; margin: 10px 12px 0; align-self: flex-start; }
+.pg-tabs { display: none; margin: 10px 12px 0; align-self: stretch; }
+.pg-tabs.seg-block { width: auto; }
 .pg-split { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 .pg-form { grid-template-columns: minmax(0, 1fr); min-height: 0; overflow-x: hidden; overflow-y: auto; scrollbar-gutter: stable; padding: 16px 16px 22px 18px; display: grid; gap: 14px; align-content: start; border-right: 1px solid var(--hairline); }
 .pg-field-main > span { font-size: var(--fs-md); font-weight: 600; color: var(--text); }
@@ -437,3 +438,33 @@
 .pg-attach-remove .i { width: 13px; height: 13px; }
 .pg-attach-note { margin: 0; font-size: var(--fs-sm); color: var(--text-3); line-height: 1.45; }
 @media (max-width: 1100px) { .pg-attach-drop { grid-template-columns: auto minmax(0, 1fr); } .pg-attach-buttons { grid-column: 1 / -1; } }
+
+/* ───────── CLAUDE.md ───────── */
+#claude-md-view.dragging .pg-attach-drop { background: rgb(118 167 248 / 0.1); box-shadow: 0 0 0 1.5px var(--accent) inset, 0 0 40px -10px rgb(118 167 248 / 0.5) inset; }
+.cm-project { display: grid; gap: 10px; }
+.cm-card { display: grid; gap: 10px; padding: 12px 14px; border-radius: 12px; background: var(--pane-sunken); box-shadow: 0 0 0 1px var(--hairline-strong) inset; }
+.cm-card-head { display: grid; grid-template-columns: auto minmax(0, 1fr) auto auto; align-items: center; gap: 10px; }
+.cm-card-head > .i { width: 22px; height: 22px; color: var(--accent-hi); }
+.cm-card-title { display: grid; min-width: 0; }
+.cm-card-title strong { font-size: var(--fs-md); font-weight: 640; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cm-card-title small { color: var(--text-3); font-size: var(--fs-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; direction: rtl; text-align: left; }
+.cm-premises { display: grid; gap: 4px; padding: 4px 2px 2px; }
+.cm-premise { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px; align-items: start; padding: 7px 9px; border-radius: 9px; cursor: pointer; font-size: var(--fs-sm); line-height: 1.45; color: var(--text-2); transition: background var(--t-fast) var(--ease); }
+.cm-premise:hover { background: rgb(255 255 255 / 0.04); }
+.cm-premise input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.cm-check { width: 18px; height: 18px; margin-top: 1px; border-radius: 6px; display: grid; place-items: center; color: transparent; background: var(--pane-sunken); box-shadow: 0 0 0 1px var(--hairline-strong) inset; transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease); }
+.cm-premise input:checked + .cm-check { background: linear-gradient(180deg, #8fbafb, var(--accent-lo)); color: #07101f; box-shadow: 0 1px 0 rgb(255 255 255 / 0.4) inset; }
+.cm-premise input:not(:checked) ~ span:last-child { opacity: 0.55; text-decoration: line-through; text-decoration-color: rgb(255 255 255 / 0.25); }
+.cm-premise input:focus-visible + .cm-check { outline: 2px solid var(--accent-hi); outline-offset: 2px; }
+.cm-sections { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.cm-sections li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 2px; font-size: var(--fs-sm); color: var(--text-2); border-bottom: 1px solid var(--hairline); }
+.cm-sections li:last-child { border-bottom: 0; }
+.cm-src { font-size: var(--fs-xs); font-weight: 600; border-radius: var(--r-pill); padding: 1px 8px; white-space: nowrap; }
+.cm-src.detected { color: var(--accent-hi); background: var(--accent-soft); }
+.cm-src.user { color: var(--ok); background: var(--ok-soft); }
+.cm-src.mixed { color: var(--warn); background: var(--warn-soft); }
+.cm-src.default { color: var(--text-3); background: rgb(255 255 255 / 0.06); }
+.cm-legend { display: flex; flex-wrap: wrap; gap: 6px; margin: 10px 0 0; }
+@media (max-width: 1120px) {
+  .pg-main#cm-main[data-pane="form"] .pg-output-col, .pg-main#cm-main[data-pane="output"] .pg-form { display: none; }
+}

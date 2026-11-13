@@ -660,9 +660,113 @@
         </div>
       </footer>
     </section>
+    <!-- ═════════ CLAUDE.md ═════════ -->
+    <section id="claude-md-view" class="tool-view hidden" role="tabpanel">
+      <div class="tool-body">
+        <div class="tool-main pane pg-main" id="cm-main" data-pane="form">
+          <div class="pg-tabs seg seg-block" role="group" aria-label="Alternar entre informações e documento">
+            <span class="seg-thumb" aria-hidden="true"></span>
+            <button type="button" class="seg-item active" data-cm-pane="form">Projeto</button>
+            <button type="button" class="seg-item" data-cm-pane="output">CLAUDE.md</button>
+          </div>
+          <div class="pg-split">
+            <div class="pg-form">
+              <section class="cm-project" aria-label="Pasta do projeto">
+                <div id="cm-drop" class="pg-attach-drop" tabindex="0" role="group" aria-label="Arraste a pasta do projeto aqui">
+                  <svg class="i" aria-hidden="true"><use href="#i-folder-open"/></svg>
+                  <div class="pg-attach-copy"><strong>Arraste a pasta do projeto aqui</strong><span>a análise é feita no seu computador, só leitura; segredos (.env, chaves) nunca são lidos</span></div>
+                  <div class="pg-attach-buttons"><button id="cm-pick" class="btn btn-sm btn-primary" type="button">Escolher pasta</button></div>
+                </div>
+                <div id="cm-card" class="cm-card hidden">
+                  <div class="cm-card-head"><svg class="i" aria-hidden="true"><use href="#i-folder"/></svg><div class="cm-card-title"><strong id="cm-project-name"></strong><small id="cm-project-path"></small></div>
+                    <button id="cm-reanalyze" class="btn btn-sm btn-ghost" type="button" title="Ler a pasta de novo"><svg class="i i-xs" aria-hidden="true"><use href="#i-refresh"/></svg>Reanalisar</button>
+                    <button id="cm-forget" class="btn btn-sm btn-ghost btn-danger" type="button">Remover</button></div>
+                  <div id="cm-stack" class="pg-signals"></div>
+                  <p id="cm-card-stats" class="pg-attach-note"></p>
+                </div>
+              </section>
+
+              <div class="pg-detect"><svg class="i i-sm" aria-hidden="true"><use href="#i-sparkles"/></svg><span id="cm-hint">Tudo abaixo é opcional: o que você não preencher é deduzido do projeto ou usa premissas padrão.</span></div>
+
+              <div class="pg-row">
+                <label class="field"><span>Nome do projeto</span><input id="cm-name" type="text" maxlength="120" placeholder="Automático" spellcheck="false"></label>
+                <label class="field"><span>Público</span><input id="cm-audience" type="text" maxlength="200" placeholder="Quem usa ou mantém" spellcheck="false"></label>
+              </div>
+              <label class="field"><span>Objetivo do projeto <small>1–2 frases</small></span><textarea id="cm-purpose" rows="2" maxlength="2000" spellcheck="true" placeholder="Para que serve e para quem. Se vazio, uso o README e o manifesto."></textarea></label>
+              <label class="field"><span>O que a IA nunca deve fazer aqui <small>uma por linha</small></span><textarea id="cm-prohibitions" rows="3" maxlength="5000" spellcheck="true" placeholder="Alterar migrações do banco&#10;Atualizar dependências sozinha"></textarea></label>
+              <label class="field"><span>Regras e convenções <small>uma por linha</small></span><textarea id="cm-rules" rows="3" maxlength="5000" spellcheck="true" placeholder="Componentes em PascalCase&#10;Erros sempre tratados com Result"></textarea></label>
+
+              <details class="pg-advanced" id="cm-more">
+                <summary><svg class="i i-sm chevron" aria-hidden="true"><use href="#i-chevron"/></svg>Mais detalhes <em id="cm-more-count" class="pg-count hidden"></em><small>comandos, armadilhas, arquitetura, fluxo, preferências</small></summary>
+                <div class="pg-advanced-body">
+                  <label class="field"><span>Comandos <small>"descrição: comando", um por linha; somam-se aos detectados</small></span><textarea id="cm-commands" class="pg-mono" rows="3" maxlength="5000" spellcheck="false" placeholder="subir ambiente: docker compose up&#10;npm run seed"></textarea></label>
+                  <label class="field"><span>Armadilhas <small>o que costuma dar errado</small></span><textarea id="cm-gotchas" rows="3" maxlength="5000" spellcheck="true" placeholder="O build falha sem a variável API_URL"></textarea></label>
+                  <label class="field"><span>Arquitetura <small>notas além do detectado</small></span><textarea id="cm-architecture" rows="3" maxlength="5000" spellcheck="true" placeholder="Os dados vêm da API REST em /v1"></textarea></label>
+                  <label class="field"><span>Fluxo de trabalho <small>branches, PRs, releases</small></span><textarea id="cm-workflow" rows="2" maxlength="5000" spellcheck="true" placeholder="Branches no formato feat/nome"></textarea></label>
+                  <label class="field"><span>Como você prefere trabalhar com a IA <small>acrescenta às premissas</small></span><textarea id="cm-work-preferences" rows="2" maxlength="5000" spellcheck="true" placeholder="Explique decisões de design em 2 frases"></textarea></label>
+                </div>
+              </details>
+
+              <details class="pg-advanced" id="cm-premises-box">
+                <summary><svg class="i i-sm chevron" aria-hidden="true"><use href="#i-chevron"/></svg>Premissas padrão <em id="cm-premises-count" class="pg-count"></em><small>usadas quando você não diz o contrário</small></summary>
+                <div id="cm-premises" class="cm-premises"></div>
+              </details>
+            </div>
+
+            <div class="pg-output-col">
+              <div class="pg-output-head"><strong>CLAUDE.md</strong><span id="cm-output-meta" class="chip">aguardando</span></div>
+              <div class="pg-output-wrap"><pre id="cm-output" class="pg-output" tabindex="0" aria-label="CLAUDE.md gerado" aria-live="polite"></pre></div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="tool-side pane" aria-label="Completude e opções do CLAUDE.md">
+          <section class="side-sec">
+            <h3 class="side-title">Completude</h3>
+            <div class="pg-score" id="cm-score-box">
+              <div class="pg-score-num"><strong id="cm-score" class="num">0</strong><span>/100</span></div>
+              <div class="pg-score-copy"><strong id="cm-score-label">—</strong><div class="pg-bar" aria-hidden="true"><i id="cm-bar-fill"></i></div></div>
+            </div>
+            <ul id="cm-checklist" class="pg-checklist"></ul>
+            <div id="cm-alerts" class="pg-alerts"></div>
+          </section>
+          <section id="cm-questions-sec" class="side-sec hidden">
+            <h3 class="side-title">Para melhorar</h3>
+            <ul id="cm-questions" class="pg-questions"></ul>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Seções e origem</h3>
+            <ul id="cm-sections" class="cm-sections"></ul>
+            <p class="cm-legend"><span class="cm-src detected">detectado</span><span class="cm-src user">informado</span><span class="cm-src mixed">misto</span><span class="cm-src default">premissa</span></p>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Documento</h3>
+            <div class="field"><span>Idioma</span>
+              <div id="cm-lang-seg" class="seg seg-block" role="group" aria-label="Idioma do documento">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item active" data-cm-lang="pt">Português</button><button type="button" class="seg-item" data-cm-lang="en">English</button>
+              </div>
+            </div>
+            <label class="field"><span>Nível de detalhe</span>
+              <select id="cm-detail"><option value="compact">Compacto (essencial)</option><option value="standard" selected>Padrão</option><option value="detailed">Detalhado</option></select>
+            </label>
+            <label id="cm-existing-row" class="switch-row hidden"><span class="switch-copy"><strong>Manter o CLAUDE.md existente</strong><small>incluído como "Notas anteriores"</small></span><input id="cm-include-existing" type="checkbox" checked><span class="switch"></span></label>
+          </section>
+        </aside>
+      </div>
+      <footer class="dock glass pg-dock">
+        <div class="dock-summary pg-stats"><strong id="cm-stats-main" class="num">—</strong><small id="cm-stats-detail">Escolha a pasta do projeto ou preencha os campos</small></div>
+        <div class="pg-actions">
+          <button id="cm-clear" class="btn btn-lg btn-ghost btn-danger" type="button">Limpar</button>
+          <button id="cm-save" class="btn btn-lg" type="button" disabled><svg class="i i-sm"><use href="#i-download"/></svg>Salvar CLAUDE.md</button>
+          <button id="cm-copy" class="btn btn-primary btn-lg" type="button" disabled><svg class="i i-sm"><use href="#i-copy"/></svg><span>Copiar</span></button>
+        </div>
+      </footer>
+    </section>
   </div>
   <script src="catalog.js"></script>
   <script src="prompt-engine.js"></script>
+  <script src="claude-md-engine.js"></script>
   <script src="nav.js"></script>
   <script src="app.js"></script>
 </body>

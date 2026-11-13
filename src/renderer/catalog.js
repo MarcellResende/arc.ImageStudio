@@ -14,16 +14,14 @@
         { id: 'resizer', label: 'Resizer', icon: 'resize', status: 'ready', summary: 'Alterar dimensões', description: 'Redimensione por pixels, porcentagem ou formatos prontos para redes sociais.' },
         { id: 'converter', label: 'Conversor', icon: 'convert', status: 'ready', summary: 'Trocar de formato', description: 'Converta para JPG, PNG, WebP ou AVIF com controle de qualidade e transparência.' },
         { id: 'renamer', label: 'Renomeador', icon: 'rename', status: 'ready', summary: 'Nomes em lote', description: 'Aplique padrões, numeração e substituições, vendo o resultado antes de salvar.' },
-        { id: 'metadata', label: 'Metadados', icon: 'shield', status: 'ready', summary: 'Proteger a privacidade', description: 'Inspecione e remova EXIF, localização e rastros de IA sem alterar a imagem.' },
-        { id: 'receiver', label: 'Receber', icon: 'wifi', status: 'ready', summary: 'Do celular para o PC pelo Wi-Fi', title: 'Receber arquivos', description: 'Transfira do celular pela mesma rede Wi-Fi, com os bytes e a qualidade original preservados.' },
-        { id: 'sender', label: 'Enviar', icon: 'send', status: 'ready', summary: 'Do PC para outro dispositivo', title: 'Enviar arquivos', description: 'Compartilhe do PC para outro dispositivo pela rede local, sem reduzir a qualidade ou alterar os bytes.' }
+        { id: 'metadata', label: 'Metadados', icon: 'shield', status: 'ready', summary: 'Proteger a privacidade', description: 'Inspecione e remova EXIF, localização e rastros de IA sem alterar a imagem.' }
       ]
     },
     {
       id: 'ai', label: 'IA', icon: 'sparkles',
       tools: [
         { id: 'prompt-gen', label: 'Prompt Gen', icon: 'sparkles', status: 'ready', summary: 'Montar prompts estruturados', title: 'Prompt Gen', description: 'Transforma uma ideia em um prompt estruturado, com contexto, formato e critérios, tudo no seu computador e sem usar outra IA.' },
-        { id: 'claude-md', label: 'CLAUDE.md', icon: 'file-text', status: 'soon', summary: 'Criar instruções para projetos' }
+        { id: 'claude-md', label: 'CLAUDE.md', icon: 'file-text', status: 'ready', summary: 'Criar instruções para projetos', title: 'CLAUDE.md', description: 'Analisa a pasta do projeto e monta o CLAUDE.md com o que encontrou, o que você informar e boas premissas, tudo no seu computador.' }
       ]
     },
     {
@@ -54,6 +52,8 @@
     {
       id: 'utilities', label: 'Utilitários', icon: 'grid',
       tools: [
+        { id: 'receiver', label: 'Receber', icon: 'wifi', status: 'ready', summary: 'Do celular para o PC pelo Wi-Fi', title: 'Receber arquivos', description: 'Transfira do celular pela mesma rede Wi-Fi, com os bytes e a qualidade original preservados.' },
+        { id: 'sender', label: 'Enviar', icon: 'send', status: 'ready', summary: 'Do PC para outro dispositivo', title: 'Enviar arquivos', description: 'Compartilhe do PC para outro dispositivo pela rede local, sem reduzir a qualidade ou alterar os bytes.' },
         { id: 'qr-generator', label: 'Gerador de QR Code', icon: 'qr', status: 'soon', summary: 'Criar códigos QR' },
         { id: 'file-hash', label: 'Hash de Arquivos', icon: 'hash', status: 'soon', summary: 'Calcular e comparar hashes' },
         { id: 'unit-converter', label: 'Conversor de Unidades', icon: 'ruler', status: 'soon', summary: 'Converter medidas' }
