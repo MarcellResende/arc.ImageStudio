@@ -45,6 +45,7 @@
     <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/></symbol>
     <symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
     <symbol id="i-qr" viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M16 16h3v3M21 16v5M16 21h1"/></symbol>
+    <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
   </svg>
 
   <div class="app">
@@ -59,9 +60,10 @@
         <button class="tool-tab seg-item" role="tab" id="tab-renamer" data-tool="renamer" aria-selected="false" aria-controls="renamer-view" title="Renomeador — nomes em lote"><svg class="i i-sm"><use href="#i-rename"/></svg><span>Renomeador</span></button>
         <button class="tool-tab seg-item" role="tab" id="tab-metadata" data-tool="metadata" aria-selected="false" aria-controls="metadata-view" title="Metadados — proteger a privacidade"><svg class="i i-sm"><use href="#i-shield"/></svg><span>Metadados</span></button>
         <button class="tool-tab seg-item" role="tab" id="tab-receiver" data-tool="receiver" aria-selected="false" aria-controls="receiver-view" title="Receber — transferir arquivos pelo Wi-Fi"><svg class="i i-sm"><use href="#i-wifi"/></svg><span>Receber</span></button>
+        <button class="tool-tab seg-item" role="tab" id="tab-sender" data-tool="sender" aria-selected="false" aria-controls="sender-view" title="Enviar — compartilhar arquivos pela rede local"><svg class="i i-sm"><use href="#i-send"/></svg><span>Enviar</span></button>
       </nav>
 
-      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.7.2</span></button></div>
+      <div class="toolbar-meta"><button id="update-button" class="update-button" type="button" title="Verificar atualizações"><span class="update-status-dot"></span><span id="update-button-label">v2.8.0</span></button></div>
     </header>
 
     <aside id="update-notice" class="update-notice glass hidden" role="status" aria-live="polite">
@@ -450,6 +452,70 @@
                 <div class="pane-head"><div class="pane-title"><h2>Atividade da sessão</h2><p id="receiver-feed-subtitle">Aguardando o primeiro arquivo…</p></div></div>
                 <div id="receiver-file-list" class="receiver-file-list" aria-live="polite">
                   <div id="receiver-feed-empty" class="receiver-feed-empty"><svg class="i i-lg"><use href="#i-download"/></svg><strong>Pronto para receber</strong><span>Os arquivos aparecerão aqui durante a transferência.</span></div>
+                </div>
+              </section>
+            </div>
+          </main>
+        </div>
+      </div>
+    </section>
+
+    <!-- ═════════ Enviar arquivos ═════════ -->
+    <section id="sender-view" class="tool-view hidden" role="tabpanel" aria-labelledby="tab-sender">
+      <header class="tool-head"><h1>Enviar arquivos</h1><p>Compartilhe do PC para outro dispositivo pela rede local, sem reduzir a qualidade ou alterar os bytes.</p></header>
+      <div class="tool-body single receiver-body">
+        <div class="receiver-workspace pane">
+          <aside class="receiver-setup">
+            <div class="receiver-status-heading">
+              <span id="sender-status-dot" class="receiver-status-dot"></span>
+              <div><small>Status do compartilhamento</small><strong id="sender-status-label">Sessão desligada</strong></div>
+            </div>
+
+            <div class="sender-selection-summary">
+              <span class="dest-icon"><svg class="i i-sm"><use href="#i-file"/></svg></span>
+              <div><small>Arquivos disponíveis</small><strong id="sender-selected-count">Nenhum arquivo</strong><span id="sender-selected-size">Selecione no computador</span></div>
+            </div>
+            <button id="sender-select-files" class="btn receiver-main-action" type="button"><svg class="i i-sm"><use href="#i-plus"/></svg>Adicionar arquivos</button>
+            <button id="sender-start" class="btn btn-primary btn-lg receiver-main-action" type="button" disabled><svg class="i i-sm"><use href="#i-send"/></svg><span>Iniciar envio</span></button>
+            <button id="sender-stop" class="btn btn-danger receiver-main-action hidden" type="button"><svg class="i i-sm"><use href="#i-x"/></svg><span>Encerrar sessão</span></button>
+            <button id="sender-clear" class="btn btn-ghost btn-danger receiver-main-action" type="button" disabled><svg class="i i-sm"><use href="#i-trash"/></svg>Limpar seleção</button>
+
+            <div class="callout receiver-security"><svg class="i"><use href="#i-shield"/></svg><span><strong>Originais intactos</strong><br><small>O outro dispositivo baixa os arquivos diretamente deste PC. Não há WhatsApp, nuvem, compressão ou conversão no caminho.</small></span></div>
+            <div class="receiver-session-stats">
+              <div><strong id="sender-download-count" class="num">0</strong><span>Downloads concluídos</span></div>
+              <div><strong id="sender-byte-count" class="num">0 B</strong><span>Total enviado</span></div>
+            </div>
+          </aside>
+
+          <main class="receiver-content">
+            <div id="sender-idle" class="sender-idle">
+              <div id="sender-drop-zone" class="sender-drop-zone" tabindex="0" role="button" aria-label="Solte arquivos aqui ou pressione Enter para selecionar">
+                <div class="drop-art" aria-hidden="true"><svg class="i i-lg"><use href="#i-send"/></svg></div>
+                <div class="drop-copy"><h2>Escolha o que deseja enviar</h2><p>arraste arquivos ou pastas para compartilhar os originais</p></div>
+                <button id="sender-select-files-main" class="btn btn-primary" type="button">Selecionar arquivos</button>
+                <div class="drop-meta"><span class="chip">Qualquer formato</span><span>até 10.000 arquivos</span><span>sem limite artificial de qualidade</span></div>
+              </div>
+              <section id="sender-selection" class="sender-selection hidden">
+                <div class="pane-head"><div class="pane-title"><h2>Arquivos selecionados</h2><p id="sender-selection-subtitle"></p></div></div>
+                <div id="sender-selected-list" class="sender-selected-list"></div>
+              </section>
+            </div>
+
+            <div id="sender-active" class="receiver-active hidden">
+              <section class="receiver-connect-card">
+                <div class="receiver-qr-wrap"><img id="sender-qr" alt="QR Code para baixar os arquivos em outro dispositivo"></div>
+                <div class="receiver-connect-copy">
+                  <span class="receiver-live"><i></i>Compartilhamento ativo</span>
+                  <h2>Escaneie para baixar os originais</h2>
+                  <p>Abra no celular, tablet ou outro computador conectado à mesma rede e escolha quais arquivos deseja baixar.</p>
+                  <div class="receiver-url-row"><code id="sender-url"></code><button id="sender-copy-url" class="btn btn-sm btn-icon" type="button" title="Copiar endereço" aria-label="Copiar endereço"><svg class="i i-xs"><use href="#i-copy"/></svg></button></div>
+                  <div class="receiver-network-note"><svg class="i i-sm"><use href="#i-wifi"/></svg><span id="sender-network-label">Disponível nesta rede local</span></div>
+                </div>
+              </section>
+              <section class="receiver-feed">
+                <div class="pane-head"><div class="pane-title"><h2>Atividade de envio</h2><p id="sender-feed-subtitle">Aguardando o primeiro download…</p></div></div>
+                <div id="sender-activity-list" class="receiver-file-list" aria-live="polite">
+                  <div class="receiver-feed-empty"><svg class="i i-lg"><use href="#i-send"/></svg><strong>Arquivos disponíveis</strong><span>Os downloads aparecerão aqui em tempo real.</span></div>
                 </div>
               </section>
             </div>

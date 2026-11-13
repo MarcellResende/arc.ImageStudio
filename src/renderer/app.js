@@ -22,6 +22,10 @@ const receiver = {
   running: false, destinationRoot: '', url: '', qrDataUrl: '', addresses: [],
   receivedCount: 0, receivedBytes: 0, activeUploads: 0, items: new Map()
 };
+const sender = {
+  items: [], running: false, url: '', qrDataUrl: '', addresses: [],
+  downloadCount: 0, sentBytes: 0, activeDownloads: 0, activities: new Map()
+};
 
 const presets = {
   instagram: [
@@ -178,7 +182,16 @@ const receiverElements = {
   networkLabel: $('#receiver-network-label'), fileCount: $('#receiver-file-count'), byteCount: $('#receiver-byte-count'),
   feedSubtitle: $('#receiver-feed-subtitle'), fileList: $('#receiver-file-list')
 };
-let updateUiState = { status: 'idle', currentVersion: '2.7.2', availableVersion: '', percent: 0, showNotice: false };
+const senderElements = {
+  statusDot: $('#sender-status-dot'), statusLabel: $('#sender-status-label'), selectedCount: $('#sender-selected-count'),
+  selectedSize: $('#sender-selected-size'), selectFiles: $('#sender-select-files'), selectFilesMain: $('#sender-select-files-main'),
+  start: $('#sender-start'), stop: $('#sender-stop'), clear: $('#sender-clear'), idle: $('#sender-idle'), active: $('#sender-active'),
+  dropZone: $('#sender-drop-zone'), selection: $('#sender-selection'), selectionSubtitle: $('#sender-selection-subtitle'),
+  selectedList: $('#sender-selected-list'), qr: $('#sender-qr'), url: $('#sender-url'), copyUrl: $('#sender-copy-url'),
+  networkLabel: $('#sender-network-label'), downloadCount: $('#sender-download-count'), byteCount: $('#sender-byte-count'),
+  feedSubtitle: $('#sender-feed-subtitle'), activityList: $('#sender-activity-list')
+};
+let updateUiState = { status: 'idle', currentVersion: '2.8.0', availableVersion: '', percent: 0, showNotice: false };
 let dismissedUpdateStatus = '';
 
 function renderUpdateState(state) {
@@ -375,6 +388,141 @@ function handleReceiverEvent(event) {
   renderReceiverFiles();
 }
 
+function addSenderItems(items) {
+  const existing = new Set(sender.items.map((item) => item.path.toLowerCase()));
+  for (const item of items || []) {
+    if (!item?.path || existing.has(item.path.toLowerCase())) continue;
+    sender.items.push(item);
+    existing.add(item.path.toLowerCase());
+    if (sender.items.length >= 10000) break;
+  }
+  renderSenderSelection();
+}
+
+function renderSenderSelection() {
+  const count = sender.items.length;
+  const totalSize = sender.items.reduce((total, item) => total + (Number(item.size) || 0), 0);
+  senderElements.selectedCount.textContent = count ? `${count} ${count === 1 ? 'arquivo' : 'arquivos'}` : 'Nenhum arquivo';
+  senderElements.selectedSize.textContent = count ? formatBytes(totalSize) : 'Selecione no computador';
+  senderElements.selection.classList.toggle('hidden', !count);
+  senderElements.selectionSubtitle.textContent = count ? `${count} ${count === 1 ? 'item' : 'itens'} · ${formatBytes(totalSize)}` : '';
+  senderElements.start.disabled = !count || sender.running;
+  senderElements.clear.disabled = !count || sender.running;
+  senderElements.selectFiles.disabled = sender.running;
+  if (!count) { senderElements.selectedList.innerHTML = ''; return; }
+  const visibleItems = sender.items.slice(0, 500);
+  senderElements.selectedList.innerHTML = visibleItems.map((item, index) => `<div class="sender-selected-row" title="${escapeHtml(item.name)}">
+    <span class="sender-file-icon"><svg class="i i-sm"><use href="#i-file"/></svg></span>
+    <span class="sender-selected-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(item.relativePath || item.name)}</small></span>
+    <span class="num">${formatBytes(item.size)}</span>
+    <button class="sender-remove" type="button" data-sender-remove="${index}" title="Remover" aria-label="Remover ${escapeHtml(item.name)}"><svg class="i i-xs"><use href="#i-x"/></svg></button>
+  </div>`).join('') + (count > visibleItems.length ? `<div class="sender-selected-overflow">Mais ${count - visibleItems.length} arquivos estão incluídos na sessão.</div>` : '');
+}
+
+function senderActivityMarkup(item) {
+  const size = Math.max(0, Number(item.size) || 0);
+  const transferred = item.status === 'completed' ? size : Math.max(0, Number(item.transferredBytes) || 0);
+  const percent = size ? Math.min(100, Math.round(transferred / size * 100)) : item.status === 'completed' ? 100 : 0;
+  const status = item.status === 'completed' ? 'Download concluído' : item.status === 'error' ? item.error || 'Download interrompido' : `Enviando ${percent}%`;
+  const icon = item.status === 'completed' ? 'i-check' : item.status === 'error' ? 'i-alert' : 'i-send';
+  return `<article class="receiver-file ${item.status || 'receiving'}" title="${escapeHtml(item.name)}">
+    <span class="receiver-file-icon"><svg class="i i-sm"><use href="#${icon}"/></svg></span>
+    <span class="receiver-file-copy"><strong>${escapeHtml(item.name)}</strong><small>${escapeHtml(status)} · ${formatBytes(size)}</small></span>
+    <span class="receiver-file-percent num">${item.status === 'completed' ? '100%' : item.status === 'error' ? 'Erro' : `${percent}%`}</span>
+    <span class="receiver-file-track"><i style="width:${percent}%"></i></span>
+  </article>`;
+}
+
+function renderSenderActivities() {
+  const items = [...sender.activities.values()].slice(-100).reverse();
+  if (!items.length) {
+    senderElements.activityList.innerHTML = '<div class="receiver-feed-empty"><svg class="i i-lg"><use href="#i-send"/></svg><strong>Arquivos disponíveis</strong><span>Os downloads aparecerão aqui em tempo real.</span></div>';
+    senderElements.feedSubtitle.textContent = 'Aguardando o primeiro download…';
+    return;
+  }
+  senderElements.activityList.innerHTML = items.map(senderActivityMarkup).join('');
+  const active = items.filter((item) => item.status === 'receiving').length;
+  senderElements.feedSubtitle.textContent = active
+    ? `${active} ${active === 1 ? 'download em andamento' : 'downloads em andamento'}`
+    : `${sender.downloadCount} ${sender.downloadCount === 1 ? 'download concluído' : 'downloads concluídos'} nesta sessão`;
+}
+
+function renderSenderState(state = {}) {
+  const { files, downloads, ...publicState } = state;
+  Object.assign(sender, publicState);
+  if (Array.isArray(files) && files.length) sender.items = files;
+  if (Array.isArray(downloads)) {
+    for (const item of downloads) sender.activities.set(item.id, { ...item, status: 'completed', transferredBytes: item.size });
+  }
+  const running = Boolean(sender.running);
+  senderElements.statusDot.classList.toggle('active', running);
+  senderElements.statusLabel.textContent = running ? 'Arquivos disponíveis' : 'Sessão desligada';
+  senderElements.start.classList.toggle('hidden', running);
+  senderElements.stop.classList.toggle('hidden', !running);
+  senderElements.idle.classList.toggle('hidden', running);
+  senderElements.active.classList.toggle('hidden', !running);
+  senderElements.downloadCount.textContent = String(sender.downloadCount || 0);
+  senderElements.byteCount.textContent = formatBytes(sender.sentBytes || 0);
+  senderElements.url.textContent = sender.url || '';
+  if (sender.qrDataUrl) senderElements.qr.src = sender.qrDataUrl;
+  const network = sender.addresses?.[0];
+  senderElements.networkLabel.textContent = network ? `Rede local · ${network.address}:${sender.port}` : 'Disponível nesta rede local';
+  renderSenderSelection();
+  renderSenderActivities();
+}
+
+async function chooseSenderFiles() {
+  addSenderItems(await window.arc.selectSenderFiles());
+}
+
+async function startSenderSession() {
+  senderElements.start.disabled = true;
+  senderElements.start.querySelector('span').textContent = 'Preparando conexão…';
+  try {
+    renderSenderState(await window.arc.startSender({ items: sender.items }));
+  } catch (error) {
+    showPasteToast(error?.message || 'Não foi possível iniciar. Confira a conexão Wi-Fi.', 'error');
+  } finally {
+    senderElements.start.querySelector('span').textContent = 'Iniciar envio';
+    renderSenderSelection();
+  }
+}
+
+async function stopSenderSession() {
+  senderElements.stop.disabled = true;
+  senderElements.stop.querySelector('span').textContent = 'Encerrando…';
+  try { renderSenderState(await window.arc.stopSender()); }
+  catch (error) { showPasteToast(error?.message || 'Não foi possível encerrar a sessão.', 'error'); }
+  finally { senderElements.stop.disabled = false; senderElements.stop.querySelector('span').textContent = 'Encerrar sessão'; }
+}
+
+function handleSenderEvent(event) {
+  if (!event || typeof event !== 'object') return;
+  if (event.type === 'session-started') {
+    sender.activities.clear();
+    renderSenderState(event.state);
+    return;
+  }
+  if (event.type === 'session-stopped') { renderSenderState(event.state); return; }
+  if (event.type === 'download-started') {
+    sender.activeDownloads += 1;
+    sender.activities.set(event.id, { ...event, status: 'receiving', transferredBytes: 0 });
+  } else if (event.type === 'download-progress') {
+    sender.activities.set(event.id, { ...(sender.activities.get(event.id) || event), ...event, status: 'receiving' });
+  } else if (event.type === 'download-completed') {
+    sender.activeDownloads = Math.max(0, sender.activeDownloads - 1);
+    sender.downloadCount += 1;
+    sender.sentBytes += event.item.size;
+    sender.activities.set(event.item.id, { ...event.item, status: 'completed', transferredBytes: event.item.size });
+    senderElements.downloadCount.textContent = String(sender.downloadCount);
+    senderElements.byteCount.textContent = formatBytes(sender.sentBytes);
+  } else if (event.type === 'download-error') {
+    sender.activeDownloads = Math.max(0, sender.activeDownloads - 1);
+    sender.activities.set(event.id, { ...(sender.activities.get(event.id) || event), ...event, status: 'error' });
+  }
+  renderSenderActivities();
+}
+
 function escapeHtml(value) {
   return String(value).replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#039;');
 }
@@ -449,7 +597,7 @@ async function addPastedItems(tool, items) {
 async function handleClipboardPaste(event) {
   if (pasteTargetIsEditable(event.target) || pastingClipboard) return;
   const tool = activeTool();
-  if (tool === 'receiver') return;
+  if (tool === 'receiver' || tool === 'sender') return;
   event.preventDefault();
   const states = { compressor, resizer, converter, renamer, metadata: metadataCleaner };
   const labels = { compressor: 'Compressor', resizer: 'Resizer', converter: 'Conversor', renamer: 'Renomeador', metadata: 'Metadados' };
@@ -1521,7 +1669,7 @@ toolTabs.forEach((button, index) => {
     }
   });
 });
-// Ctrl/Cmd + 1…6 jump between tools
+// Ctrl/Cmd + 1…7 jump between tools
 document.addEventListener('keydown', (event) => {
   if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
   const index = Number(event.key) - 1;
@@ -1619,6 +1767,7 @@ window.arc.onRenameProgress((progress) => { renamer.results.set(progress.id, pro
 window.arc.onRenameStarted(({ id }) => { if (!renamer.completed) { renamer.results.set(id, { working: true }); queueRender(renderRenamerQueue); } });
 window.arc.onUpdateState(renderUpdateState);
 window.arc.onReceiverEvent(handleReceiverEvent);
+window.arc.onSenderEvent(handleSenderEvent);
 
 [compressorElements.start, resizeElements.start, converterElements.start, renamerElements.start, metadataElements.start]
   .forEach((button) => setActionState(button, 'idle'));
@@ -1649,9 +1798,26 @@ receiverElements.copyUrl.addEventListener('click', async () => {
   if (await window.arc.copyReceiverUrl()) showPasteToast('Endereço copiado.');
 });
 
+senderElements.selectFiles.addEventListener('click', chooseSenderFiles);
+senderElements.selectFilesMain.addEventListener('click', chooseSenderFiles);
+senderElements.start.addEventListener('click', startSenderSession);
+senderElements.stop.addEventListener('click', stopSenderSession);
+senderElements.clear.addEventListener('click', () => { sender.items = []; renderSenderSelection(); });
+senderElements.copyUrl.addEventListener('click', async () => {
+  if (await window.arc.copySenderUrl()) showPasteToast('Endereço copiado.');
+});
+senderElements.selectedList.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-sender-remove]');
+  if (!button || sender.running) return;
+  sender.items.splice(Number(button.dataset.senderRemove), 1);
+  renderSenderSelection();
+});
+wireDropZone(senderElements.dropZone, addSenderItems, (paths) => window.arc.addSenderPaths(paths));
+
 window.arc.defaultOutput().then((outputPath) => { compressor.outputRoot = outputPath; resizer.outputRoot = outputPath; converter.outputRoot = outputPath; renamer.outputRoot = outputPath; metadataCleaner.outputRoot = outputPath; compressorElements.outputPath.value = outputPath; resizeElements.outputPath.value = outputPath; converterElements.outputPath.value = outputPath; renamerElements.outputPath.value = outputPath; metadataElements.outputPath.value = outputPath; });
 window.arc.getUpdateState().then(renderUpdateState);
 window.arc.getReceiverState().then(renderReceiverState);
+window.arc.getSenderState().then(renderSenderState);
 metadataElements.colorProfile.classList.add('active');
 converterElements.colorProfile.classList.add('active');
 renderPresets(); updateResizeTarget(); updateConverterControls(); updateRenamerControls(); refreshRenamePreview(); updateCompressorSummary();

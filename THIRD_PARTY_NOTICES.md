@@ -8,7 +8,7 @@ paths from, or redrawn after, Lucide Icons: `minimize-2`, `scaling`,
 `folder-open`, `plus`, `x`, `trash-2`, `check`, `triangle-alert`, `info`,
 `search`, `lock`, `lock-open`, `refresh-cw`, `map-pin`, `camera`, `sparkles`,
 `image`, `copy`, `pencil`, `arrow-right`, `download`, `zap`, `file`, `wifi`,
-`smartphone`, and `qr-code`.
+`smartphone`, `qr-code`, and `send`.
 
 Lucide is distributed under the ISC License. Some Lucide icons are derived from
 Feather and remain available under the MIT License. All icons are stored inline
@@ -57,6 +57,33 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 Source: https://github.com/soldair/node-qrcode
+
+## yazl
+
+The Wi-Fi sender uses `yazl` 3.3.1 to stream the **Download all** ZIP archive.
+Files are stored without compression so their original bytes are preserved.
+
+Copyright (c) 2014 Josh Wolfe
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Source: https://github.com/thejoshwolfe/yazl
 
 ## Local fonts
 

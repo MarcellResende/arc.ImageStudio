@@ -14,7 +14,7 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024 * 1024;
 const MAX_CONCURRENT_UPLOADS = 4;
 const MAX_SESSION_FILES = 10000;
 
-function isPrivateIpv4(address) {
+export function isPrivateIpv4(address) {
   const parts = String(address).split('.').map(Number);
   if (parts.length !== 4 || parts.some((part) => !Number.isInteger(part) || part < 0 || part > 255)) return false;
   return parts[0] === 10

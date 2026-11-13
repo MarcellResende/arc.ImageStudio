@@ -13,6 +13,7 @@ import { convertImage, conversionPreview, isSupportedConversionInput } from './c
 import { saveClipboardImageItems } from './clipboard-image.mjs';
 import { buildRenamePreview, isSupportedRenameInput, renameBatch } from './renamer.mjs';
 import { WifiReceiver } from './wifi-receiver.mjs';
+import { WifiSender } from './wifi-sender.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = updaterPackage;
@@ -30,11 +31,20 @@ let manualUpdateCheck = false;
 let installAfterDownload = false;
 let clipboardSessionDirectory = '';
 let receiverQrDataUrl = '';
+let senderQrDataUrl = '';
 
 const wifiReceiver = new WifiReceiver({
   onEvent: (data) => {
     for (const window of BrowserWindow.getAllWindows()) {
       if (!window.isDestroyed()) window.webContents.send('receiver:event', data);
+    }
+  }
+});
+
+const wifiSender = new WifiSender({
+  onEvent: (data) => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send('sender:event', data);
     }
   }
 });
@@ -50,6 +60,11 @@ function publicReceiverState() {
     destinationRoot: state.destinationRoot || defaultReceiverOutput(),
     qrDataUrl: state.running ? receiverQrDataUrl : ''
   };
+}
+
+function publicSenderState() {
+  const state = wifiSender.publicState();
+  return { ...state, qrDataUrl: state.running ? senderQrDataUrl : '' };
 }
 
 function publicUpdateState() {
@@ -219,6 +234,18 @@ async function scanRenameDirectory(root, directory = root) {
   return images;
 }
 
+async function scanAllFiles(root, directory = root, files = []) {
+  if (files.length >= 10000) return files;
+  const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+  for (const entry of entries) {
+    if (files.length >= 10000) break;
+    const fullPath = path.join(directory, entry.name);
+    if (entry.isDirectory()) await scanAllFiles(root, fullPath, files);
+    else if (entry.isFile()) files.push(await fileEntry(fullPath, path.relative(root, fullPath)));
+  }
+  return files;
+}
+
 async function cleanupLegacyClipboardFiles() {
   const clipboardRoot = path.join(app.getPath('temp'), 'ARC Image Studio', 'clipboard');
   const entries = await readdir(clipboardRoot, { withFileTypes: true }).catch(() => []);
@@ -381,6 +408,46 @@ ipcMain.handle('receiver:stop', async () => {
 });
 ipcMain.handle('receiver:copy-url', () => {
   const { url } = wifiReceiver.publicState();
+  if (url) clipboard.writeText(url);
+  return Boolean(url);
+});
+
+ipcMain.handle('sender:files-select', async () => {
+  const result = await dialog.showOpenDialog({
+    title: 'Escolha os arquivos para enviar',
+    properties: ['openFile', 'multiSelections']
+  });
+  if (result.canceled) return [];
+  return Promise.all(result.filePaths.slice(0, 10000).map((filePath) => fileEntry(filePath)));
+});
+ipcMain.handle('sender:from-paths', async (_event, paths) => {
+  if (!Array.isArray(paths) || paths.length > 10000) return [];
+  const files = [];
+  for (const candidate of paths) {
+    if (files.length >= 10000 || typeof candidate !== 'string' || !candidate) break;
+    const info = await stat(candidate).catch(() => null);
+    if (info?.isDirectory()) await scanAllFiles(candidate, candidate, files);
+    else if (info?.isFile()) files.push(await fileEntry(candidate));
+  }
+  return files.slice(0, 10000);
+});
+ipcMain.handle('sender:get-state', () => publicSenderState());
+ipcMain.handle('sender:start', async (_event, options = {}) => {
+  const items = Array.isArray(options.items) ? options.items.slice(0, 10000) : [];
+  const state = await wifiSender.start({ items });
+  senderQrDataUrl = await QRCode.toDataURL(state.url, {
+    errorCorrectionLevel: 'M', margin: 2, width: 420,
+    color: { dark: '#0A1322FF', light: '#F5F7FCFF' }
+  });
+  return publicSenderState();
+});
+ipcMain.handle('sender:stop', async () => {
+  await wifiSender.stop();
+  senderQrDataUrl = '';
+  return publicSenderState();
+});
+ipcMain.handle('sender:copy-url', () => {
+  const { url } = wifiSender.publicState();
   if (url) clipboard.writeText(url);
   return Boolean(url);
 });
@@ -708,6 +775,7 @@ app.on('window-all-closed', () => {
 
 app.on('will-quit', () => {
   wifiReceiver.stop().catch(() => {});
+  wifiSender.stop().catch(() => {});
   if (!clipboardSessionDirectory) return;
   const clipboardRoot = path.resolve(app.getPath('temp'), 'ARC Image Studio', 'clipboard');
   const sessionPath = path.resolve(clipboardSessionDirectory);

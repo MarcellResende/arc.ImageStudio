@@ -59,7 +59,7 @@ jobs:
           gh release create $tag @assets `
             --repo "${{ github.repository }}" `
             --title "ARC Image Studio $tag" `
-            --notes "Nova aba Receber: transfira arquivos do celular pelo Wi-Fi com QR Code, sem recompressão e sem nuvem." `
+            --notes "Nova aba Enviar: transfira arquivos do PC para outros dispositivos pela rede local, com QR Code, downloads individuais ou Baixar tudo em ZIP, sem recompressão e sem nuvem." `
             --generate-notes `
             --verify-tag `
             --latest

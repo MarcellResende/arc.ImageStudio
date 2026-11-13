@@ -21,6 +21,12 @@ contextBridge.exposeInMainWorld('arc', {
   startReceiver: (options) => ipcRenderer.invoke('receiver:start', options),
   stopReceiver: () => ipcRenderer.invoke('receiver:stop'),
   copyReceiverUrl: () => ipcRenderer.invoke('receiver:copy-url'),
+  selectSenderFiles: () => ipcRenderer.invoke('sender:files-select'),
+  addSenderPaths: (paths) => ipcRenderer.invoke('sender:from-paths', paths),
+  getSenderState: () => ipcRenderer.invoke('sender:get-state'),
+  startSender: (options) => ipcRenderer.invoke('sender:start', options),
+  stopSender: () => ipcRenderer.invoke('sender:stop'),
+  copySenderUrl: () => ipcRenderer.invoke('sender:copy-url'),
   imageMetadata: (sourcePath) => ipcRenderer.invoke('image:metadata', sourcePath),
   imagePreview: (sourcePath, maxWidth, maxHeight) => ipcRenderer.invoke('image:preview', sourcePath, maxWidth, maxHeight),
   resizePreview: (sourcePath, options, maxWidth, maxHeight) => ipcRenderer.invoke('image:resize-preview', sourcePath, options, maxWidth, maxHeight),
@@ -43,6 +49,11 @@ contextBridge.exposeInMainWorld('arc', {
     const listener = (_event, data) => callback(data);
     ipcRenderer.on('receiver:event', listener);
     return () => ipcRenderer.removeListener('receiver:event', listener);
+  },
+  onSenderEvent: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('sender:event', listener);
+    return () => ipcRenderer.removeListener('sender:event', listener);
   },
   onProgress: (callback) => {
     const listener = (_event, data) => callback(data);
