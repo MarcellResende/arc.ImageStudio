@@ -172,7 +172,7 @@ O instalador será criado na pasta `release`.
 
 ## Publicar uma atualização
 
-O aplicativo procura releases públicos em `MarcellResende/arc.ImageStudio` (se o repositório for renomeado no GitHub, atualize `build.publish.repo` no `package.json`). O `appId` (`com.arc.imagestudio`) foi mantido de propósito: é o identificador interno do instalador, e mudá-lo faria o Windows tratar o arc.Studio como outro programa, deixando a versão antiga instalada ao lado da nova. Para publicar corretamente, atualize o campo `version` do `package.json`, faça o commit e envie uma tag com a mesma versão:
+O aplicativo procura releases públicos em `MarcellResende/arc.Studio` (se o repositório for renomeado no GitHub, atualize `build.publish.repo` no `package.json`; o GitHub redireciona o nome antigo, então instalações anteriores continuam recebendo atualizações). O `appId` (`com.arc.imagestudio`) foi mantido de propósito: é o identificador interno do instalador, e mudá-lo faria o Windows tratar o arc.Studio como outro programa, deixando a versão antiga instalada ao lado da nova. Para publicar corretamente, atualize o campo `version` do `package.json`, faça o commit e envie uma tag com a mesma versão:
 
 ```powershell
 git tag v<versão>
