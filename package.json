@@ -1,6 +1,6 @@
 {
   "name": "arc-image-studio",
-  "version": "2.7.0",
+  "version": "2.7.1",
   "description": "Estúdio local para otimizar, redimensionar, converter, renomear, proteger e transferir arquivos pelo Wi-Fi.",
   "type": "module",
   "main": "src/main.mjs",

@@ -35,7 +35,40 @@ jobs:
       - name: Executar testes
         run: npm test
 
-      - name: Criar e publicar o release
-        run: npm run dist -- --publish always
+      - name: Criar o instalador
+        run: npm run dist
+
+      - name: Publicar o release completo
+        shell: pwsh
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          $installer = "release/ARC-Image-Studio-Setup-$version.exe"
+          $blockmap = "$installer.blockmap"
+          $manifest = "release/latest.yml"
+          $assets = @($installer, $blockmap, $manifest)
+
+          foreach ($asset in $assets) {
+            if (-not (Test-Path -LiteralPath $asset)) {
+              throw "Arquivo obrigatório não foi gerado: $asset"
+            }
+          }
+
+          gh release create $tag @assets `
+            --repo "${{ github.repository }}" `
+            --title "ARC Image Studio $tag" `
+            --notes "Nova aba Receber: transfira arquivos do celular pelo Wi-Fi com QR Code, sem recompressão e sem nuvem." `
+            --generate-notes `
+            --verify-tag `
+            --latest
+
+          $release = gh release view $tag --repo "${{ github.repository }}" --json assets | ConvertFrom-Json
+          $publishedNames = @($release.assets.name)
+          foreach ($asset in $assets) {
+            $name = Split-Path $asset -Leaf
+            if ($publishedNames -notcontains $name) {
+              throw "Arquivo obrigatório não foi publicado: $name"
+            }
+          }

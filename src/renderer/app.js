@@ -178,7 +178,7 @@ const receiverElements = {
   networkLabel: $('#receiver-network-label'), fileCount: $('#receiver-file-count'), byteCount: $('#receiver-byte-count'),
   feedSubtitle: $('#receiver-feed-subtitle'), fileList: $('#receiver-file-list')
 };
-let updateUiState = { status: 'idle', currentVersion: '2.7.0', availableVersion: '', percent: 0, showNotice: false };
+let updateUiState = { status: 'idle', currentVersion: '2.7.1', availableVersion: '', percent: 0, showNotice: false };
 let dismissedUpdateStatus = '';
 
 function renderUpdateState(state) {
