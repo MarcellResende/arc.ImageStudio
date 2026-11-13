@@ -4,7 +4,7 @@
 
 # arc.Studio
 
-Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa (compressor, resizer, conversor de formatos, renomeador e limpeza de metadados), **Utilitários** já tem **Receber** e **Enviar** arquivos pela rede local, e **IA** tem o **Prompt Gen** e o gerador de **CLAUDE.md**. PDF, Vídeo, Áudio e o restante de Utilitários têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
+Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa (compressor, resizer, conversor de formatos, renomeador e limpeza de metadados), **Utilitários** já tem **Receber** e **Enviar** arquivos pela rede local e o **Gerador de QR Code**, e **IA** tem o **Prompt Gen** e o gerador de **CLAUDE.md**. PDF, Vídeo, Áudio e o restante de Utilitários têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
 
 ## Como usar
 
@@ -112,6 +112,22 @@ Cria o arquivo de instruções que o Claude Code lê ao abrir um projeto, **a pa
 6. **Privacidade:** `.env`, chaves e certificados **nunca são abertos** (só o nome das variáveis vem de `.env.example`); credenciais na URL do git são removidas; `node_modules`, `.git`, builds e arquivos gerados são ignorados; links simbólicos não são seguidos. Só as opções (idioma, detalhe, premissas) são lembradas; o texto digitado e o projeto analisado ficam apenas na memória.
 
 Copiar (Ctrl + Enter) ou **Salvar CLAUDE.md** (UTF-8, sem BOM; a pasta do projeto vem sugerida). O resultado é um ponto de partida deduzido do código: revise antes de confiar, principalmente objetivo e armadilhas.
+
+### Gerador de QR Code
+
+Utilitários › Gerador de QR Code cria QR Codes **totalmente personalizáveis**, tudo no seu computador (nada vai para a internet; os códigos são estáticos: não expiram e ninguém rastreia as leituras).
+
+1. **Conteúdo** (aba Conteúdo): link, texto, Wi-Fi, contato (vCard), WhatsApp, e-mail, telefone, SMS, localização, evento de calendário, **Pix** (BR Code estático com CRC) e redes sociais. Cada tipo tem os campos próprios, validação (ex.: senha do Wi-Fi, DDI do WhatsApp, valor do Pix) e avisos.
+2. **Código** (aba Código): 10 formatos de módulo (quadrado, arredondado, líquido, pontos, losango, barras, cruz, estrela, coração) com tamanho ajustável, 5 molduras e 5 centros de "olho", cores próprias nos olhos, cor sólida/degradê linear/degradê radial, fundo sólido/degradê/transparente, margem, placa com cantos/borda/sombra e, para quem quer, o avançado do QR (correção de erros L/M/Q/H, máscara, versão mínima).
+3. **Logo** (aba Logo): 21 ícones, texto ou **sua imagem**, em placa circular/arredondada/quadrada, com tamanho, respiro, borda e a opção de apagar ou não os módulos sob o logo.
+4. **Moldura** (aba Moldura): 12 composições (só o código, moldura com legenda, adesivo redondo, post quadrado e vertical, story, cartaz A4, cartão de visita, banner, ingresso com picote, etiqueta com furo) com fundo sólido/degradê/radial, imagem de fundo, 10 padrões vetoriais, ornamentos, e **Textos** (título, subtítulo, chamada e rodapé, cada um com fonte, peso, cor, tamanho e botão).
+5. **Modelos** (aba Modelos): 32 modelos prontos em 6 categorias (essenciais, molduras, negócios, casa e Wi-Fi, eventos, redes e pagamento), mais **seus próprios modelos** (salve o visual atual com um nome). Aplicar um modelo troca o visual, nunca o conteúdo.
+6. **Tudo desfaz** (Ctrl + Z / Ctrl + Y) e o visual (não o conteúdo) é lembrado entre aberturas.
+7. **Leitura de verdade:** cada mudança é decodificada por um leitor de QR Code real e o chip da prévia diz se o código **lê e devolve exatamente o conteúdo**. O painel lateral avisa sobre contraste, margem, logo grande demais para a correção escolhida, cores invertidas, forma decorativa e tamanho do módulo na exportação e na impressão.
+8. **Exportar** PNG (de 512 a 6144 px, com transparência quando o fundo é transparente), **SVG** (vetorial) ou **PDF** (página no tamanho impresso em mm), além de copiar a imagem para a área de transferência.
+9. **Criativos opcionais:** os modelos funcionam com decoração vetorial; com imagens de fundo, ornamentos e molduras (32 artes) ficam mais ricos. Veja `docs/QR-CREATIVOS.md` (lista de artes + prompts para o ChatGPT) e coloque os arquivos na pasta de artes (Moldura › Abrir pasta de artes).
+
+O conteúdo digitado (senha do Wi-Fi, telefone, chave Pix…) **nunca é gravado**: só o visual e os seus modelos. Para impressão, use o aviso de tamanho: cada módulo precisa ter ao menos ≈ 0,4 mm; faça sempre um teste de leitura com o celular antes de imprimir em quantidade.
 
 ## Recursos
 

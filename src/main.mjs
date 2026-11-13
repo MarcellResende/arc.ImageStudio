@@ -1,5 +1,5 @@
-import { app, BrowserWindow, clipboard, dialog, ipcMain, Notification, shell } from 'electron';
-import { readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { app, BrowserWindow, clipboard, ClipboardItem, dialog, ipcMain, Notification, shell } from 'electron';
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { existsSync, rmSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import path from 'node:path';
@@ -17,6 +17,7 @@ import { WifiSender } from './wifi-sender.mjs';
 import { SettingsStore } from './settings.mjs';
 import { collectAttachments } from './attachments.mjs';
 import { analyzeProject } from './project-analyzer.mjs';
+import { buildPdf, createQrMatrix, decodeQr, ensureDirectory, importImageFile, listArt, pngBuffer, QR_LIMITS } from './qr.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
 const { autoUpdater } = updaterPackage;
@@ -480,6 +481,70 @@ ipcMain.handle('claudemd:save', async (event, payload = {}) => {
   });
   if (result.canceled || !result.filePath) return null;
   await writeFile(result.filePath, `${text.replace(/\s+$/, '')}\n`, 'utf8');
+  return result.filePath;
+});
+
+/* QR Code generator: matrix, art library, images, export and a real scan check. */
+const qrArtBundled = () => path.join(currentDirectory, 'renderer', 'assets', 'qr-art');
+const qrArtUser = () => path.join(app.getPath('userData'), 'qr-art');
+let qrFontBase64 = null;
+ipcMain.handle('qr:matrix', (_event, request) => createQrMatrix(request));
+ipcMain.handle('qr:assets', async () => {
+  if (qrFontBase64 === null) {
+    try { qrFontBase64 = (await readFile(path.join(currentDirectory, 'renderer', 'assets', 'fonts', 'inter-latin-wght-normal.woff2'))).toString('base64'); } catch { qrFontBase64 = ''; }
+  }
+  return { art: await listArt({ bundledDirectory: qrArtBundled(), userDirectory: qrArtUser() }), inter: qrFontBase64, artDirectory: qrArtUser() };
+});
+ipcMain.handle('qr:open-art-folder', async () => {
+  const directory = await ensureDirectory(qrArtUser());
+  await shell.openPath(directory);
+  return directory;
+});
+ipcMain.handle('qr:import-image', async (event, purpose) => {
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showOpenDialog(owner, {
+    title: purpose === 'logo' ? 'Escolha o logo' : 'Escolha a imagem',
+    properties: ['openFile'],
+    filters: [{ name: 'Imagens', extensions: ['png', 'jpg', 'jpeg', 'webp', 'gif', 'avif', 'svg'] }]
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  return importImageFile(result.filePaths[0]);
+});
+ipcMain.handle('qr:verify', async (_event, bytes) => {
+  const png = pngBuffer(bytes);
+  if (!png || png.length > QR_LIMITS.maxExportBytes) throw new Error('Imagem inválida para a leitura.');
+  return decodeQr(png);
+});
+ipcMain.handle('qr:copy-image', async (_event, bytes) => {
+  const png = pngBuffer(bytes);
+  if (!png || png.length > QR_LIMITS.maxExportBytes) return false;
+  await clipboard.write([new ClipboardItem({ 'image/png': new Blob([png], { type: 'image/png' }) })]);
+  return true;
+});
+ipcMain.handle('qr:save', async (event, payload = {}) => {
+  const { format, data, suggestedName, widthMm, heightMm, background } = payload;
+  if (!['png', 'svg', 'pdf'].includes(format)) throw new Error('Formato inválido.');
+  const fileName = sanitizeFileName((typeof suggestedName === 'string' && suggestedName.trim() ? suggestedName : 'qrcode').replace(/.(png|svg|pdf)$/i, '')) + '.' + format;
+  let content;
+  if (format === 'svg') {
+    if (typeof data !== 'string' || !data.startsWith('<svg') || data.length > QR_LIMITS.maxExportBytes) throw new Error('SVG inválido.');
+    content = Buffer.from(`<?xml version="1.0" encoding="UTF-8"?>
+${data}
+`, 'utf8');
+  } else {
+    const png = pngBuffer(data);
+    if (!png || png.length > QR_LIMITS.maxExportBytes) throw new Error('Imagem inválida.');
+    content = format === 'png' ? png : await buildPdf({ png, widthMm: Number(widthMm), heightMm: Number(heightMm), background: /^#[0-9a-f]{6}$/i.test(background) ? background : '#ffffff', title: fileName });
+  }
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const labels = { png: 'Imagem PNG', svg: 'Vetor SVG', pdf: 'Documento PDF' };
+  const result = await dialog.showSaveDialog(owner, {
+    title: 'Salvar QR Code',
+    defaultPath: path.join(app.getPath('pictures'), fileName),
+    filters: [{ name: labels[format], extensions: [format] }]
+  });
+  if (result.canceled || !result.filePath) return null;
+  await writeFile(result.filePath, content);
   return result.filePath;
 });
 

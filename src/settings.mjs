@@ -84,6 +84,14 @@ export const SCHEMA = {
     includeExisting: [bool, true],
     premisesOff: [idList(CLAUDE_MD_PREMISE_IDS, 20), []]
   },
+  /* QR Code generator: the visual design and the saved templates only. What the code says (Wi-Fi passwords, phone numbers…) is never stored. */
+  qrGen: {
+    design: [multiline(24000), ''],
+    templates: [multiline(60000), '[]'],
+    exportFormat: [enumOf('png', 'svg', 'pdf'), 'png'],
+    exportWidth: [int(256, 8192), 2048],
+    printMm: [int(0, 2000), 0]
+  },
   promptDraft: {
     idea: [multiline(20000), ''],
     context: [multiline(20000), ''],

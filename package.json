@@ -1,6 +1,6 @@
 {
   "name": "arc-studio",
-  "version": "2.10.0",
+  "version": "2.11.0",
   "description": "arc.Studio — plataforma local de ferramentas: imagens, transferência de arquivos pelo Wi-Fi e mais categorias em breve.",
   "type": "module",
   "main": "src/main.mjs",
@@ -16,6 +16,7 @@
   "dependencies": {
     "electron-updater": "^6.8.11",
     "exifreader": "^4.52.0",
+    "jsqr": "1.4.0",
     "qrcode": "^1.5.4",
     "sharp": "^0.35.5",
     "yazl": "^3.3.1"

@@ -98,3 +98,13 @@ No LottieFiles, Motion, or other animation assets are used. All motion is
 authored with local CSS transitions, CSS `linear()` spring easings, and SVG.
 The legacy generated GIF files are kept for compatibility but are not
 referenced by the renderer.
+
+## jsQR
+
+The QR Code generator checks that the code it draws can really be read back by decoding the rendered picture with
+jsQR 1.4.0 (`node_modules/jsqr`, used only in the main process). jsQR is distributed under the Apache License 2.0;
+the full license text ships with the package (`node_modules/jsqr/LICENSE`).
+
+Copyright the jsQR authors
+
+Source: https://github.com/cozmo/jsQR

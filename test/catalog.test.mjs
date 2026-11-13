@@ -34,8 +34,8 @@ test('only the existing image tools are ready; every other tool is announced as 
   for (const category of catalog) {
     for (const tool of category.tools) {
       assert.ok(['ready', 'soon'].includes(tool.status), `${tool.id}: status inválido`);
-      const expectedReady = category.id === 'image' || ['prompt-gen', 'claude-md', 'receiver', 'sender'].includes(tool.id);
-      assert.equal(tool.status === 'ready', expectedReady, `${tool.id}: só as ferramentas de Imagem, Prompt Gen, CLAUDE.md, Receber e Enviar estão prontas`);
+      const expectedReady = category.id === 'image' || ['prompt-gen', 'claude-md', 'receiver', 'sender', 'qr-generator'].includes(tool.id);
+      assert.equal(tool.status === 'ready', expectedReady, `${tool.id}: só as ferramentas de Imagem, Prompt Gen, CLAUDE.md, Receber, Enviar e o Gerador de QR Code estão prontos`);
     }
   }
 });

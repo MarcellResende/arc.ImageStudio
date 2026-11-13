@@ -1669,6 +1669,7 @@ function collectOptions() {
       clarify: pg.clarify.value, reasoning: pg.reasoning.checked, grounding: pg.grounding.checked, verify: pg.verify.checked,
       fileBudget: Number(pg.fileBudget.value)
     },
+    qrGen: qrCollectSettings(),
     claudeMd: { language: claudeMd.language, detail: cm.detail.value, includeExisting: cm.includeExisting.checked, premisesOff: claudeMd.premisesOff }
   };
 }
@@ -1745,6 +1746,8 @@ async function loadSettings() {
     promptGen.style = g.style; promptGen.promptLanguage = g.promptLanguage; setBudgetSelect(g.fileBudget);
     for (const key of PG_DRAFT_FIELDS) pg[key].value = settings.promptDraft[key] || '';
     syncPromptSegments(); renderPromptGen();
+
+    qrLoadSettings(settings.qrGen);
 
     const m = settings.claudeMd;
     claudeMd.premisesOff = [...m.premisesOff]; cm.detail.value = m.detail; cm.includeExisting.checked = m.includeExisting;
@@ -2384,6 +2387,774 @@ document.addEventListener('click', (event) => { const trigger = event.target.clo
 }
 renderPremises();
 renderClaudeMd();
+
+/* ───────── QR Code generator ─────────
+   Engines: qr-payload.js (what the code says), qr-render.js (how it looks, one SVG), qr-templates.js (presets).
+   The matrix, files and the real scan check live in the main process (src/qr.mjs). Only the visual design is saved;
+   what the code says (Wi-Fi passwords, phone numbers…) stays in memory. */
+const qrR = window.ArcQrRender;
+const qrP = window.ArcQrPayload;
+const qrT = window.ArcQrTemplates;
+const qr = {
+  design: qrR.sanitizeDesign({}), fields: {}, info: null, sample: null, usingSample: true, payload: { text: '', errors: [], warnings: [], empty: true }, matrixError: '',
+  assets: { art: {}, inter: '', logoImage: '', logoName: '', artDirectory: '' }, history: [], future: [], lastPush: 0, lastGroup: '', custom: [],
+  tab: 'templates', render: null, renderTimer: 0, verifyTimer: 0, verifySeq: 0, renderSeq: 0, matrixCache: new Map(), controls: [],
+  exportFormat: 'png', exportWidth: 2048, printMm: 0, verify: { state: 'idle', text: '' }, galleries: { templates: '', layouts: '' }, ready: false
+};
+const qrEl = {
+  view: $('#qr-generator-view'), main: $('#qr-main'), tabs: $('#qr-tabs'), panels: $('#qr-panels'), preview: $('#qr-preview'), stage: $('#qr-stage'), stageNote: $('#qr-stage-note'),
+  status: $('#qr-status'), undo: $('#qr-undo'), redo: $('#qr-redo'), checks: $('#qr-checks'), info: $('#qr-info'), formatSeg: $('#qr-format-seg'), width: $('#qr-export-width'),
+  widthField: $('#qr-width-field'), printMm: $('#qr-print-mm'), exportNote: $('#qr-export-note'), reset: $('#qr-reset'), statsMain: $('#qr-stats-main'), statsDetail: $('#qr-stats-detail'),
+  verifyBtn: $('#qr-verify'), copy: $('#qr-copy'), save: $('#qr-save'), paneTabs: $('#qr-pane-tabs')
+};
+
+const QR_TAB_ORDER = ['templates', 'content', 'code', 'logo', 'frame', 'texts'];
+const QR_ECL_OPTIONS = [['auto', 'Automática (recomendado)'], ['L', 'L · 7% (código mais simples)'], ['M', 'M · 15%'], ['Q', 'Q · 25%'], ['H', 'H · 30% (ideal com logo)']];
+const QR_MASK_OPTIONS = [['auto', 'Automática (recomendado)'], ...[0, 1, 2, 3, 4, 5, 6, 7].map((value) => [String(value), `Padrão ${value}`])];
+const QR_ROLE_LABEL = { title: 'Título', subtitle: 'Subtítulo', cta: 'Chamada (botão)', footer: 'Rodapé' };
+const QR_WEIGHT_OPTIONS = [['400', 'Normal'], ['600', 'Seminegrito'], ['700', 'Negrito'], ['800', 'Extranegrito']];
+const QR_TYPE_NAMES = Object.fromEntries(qrP.TYPES.map((type) => [type.id, type.label]));
+
+const qrShown = (path, kind) => (design) => {
+  const value = qrR.getPath(design, path);
+  return Array.isArray(kind) ? kind.includes(value) : value === kind;
+};
+const qrOptions = (list) => list.map((item) => (Array.isArray(item) ? item : [item.id, item.name]));
+
+/* Every control below maps to one leaf of the design schema (ArcQrRender.SPEC). */
+const QR_CODE_SECTIONS = [
+  { title: 'Módulos (os quadradinhos)', controls: [
+    { path: 'modules.shape', label: 'Formato', kind: 'select', options: qrOptions(qrR.SHAPES) },
+    { path: 'modules.scale', label: 'Tamanho dentro da célula', kind: 'range', min: 40, max: 100, unit: '%', hint: 'Menos de 90% deixa o código leve, mas mais difícil de ler.' }
+  ] },
+  { title: 'Olhos (os três cantos)', controls: [
+    { path: 'eyes.outer', label: 'Moldura do olho', kind: 'select', options: qrOptions(qrR.EYE_OUTER) },
+    { path: 'eyes.inner', label: 'Centro do olho', kind: 'select', options: qrOptions(qrR.EYE_INNER) },
+    { path: 'eyes.custom', label: 'Cores próprias nos olhos', kind: 'switch' },
+    { path: 'eyes.outerColor', label: 'Cor da moldura', kind: 'color', showIf: qrShown('eyes.custom', true) },
+    { path: 'eyes.innerColor', label: 'Cor do centro', kind: 'color', showIf: qrShown('eyes.custom', true) }
+  ] },
+  { title: 'Cor do código', controls: [
+    { path: 'fill.mode', label: 'Tipo', kind: 'seg', options: [['solid', 'Sólida'], ['linear', 'Degradê'], ['radial', 'Radial']] },
+    { path: 'fill.c1', label: 'Cor 1', kind: 'color' },
+    { path: 'fill.c2', label: 'Cor 2', kind: 'color', showIf: qrShown('fill.mode', ['linear', 'radial']) },
+    { path: 'fill.angle', label: 'Ângulo do degradê', kind: 'range', min: 0, max: 360, unit: '°', showIf: qrShown('fill.mode', 'linear') }
+  ] },
+  { title: 'Fundo do código', controls: [
+    { path: 'background.mode', label: 'Tipo', kind: 'seg', options: [['solid', 'Sólido'], ['linear', 'Degradê'], ['transparent', 'Transparente']] },
+    { path: 'background.c1', label: 'Cor 1', kind: 'color', showIf: qrShown('background.mode', ['solid', 'linear']) },
+    { path: 'background.c2', label: 'Cor 2', kind: 'color', showIf: qrShown('background.mode', 'linear') },
+    { path: 'background.angle', label: 'Ângulo', kind: 'range', min: 0, max: 360, unit: '°', showIf: qrShown('background.mode', 'linear') },
+    { action: 'invert', label: 'Inverter cores (claro sobre escuro)', kind: 'button' }
+  ] },
+  { title: 'Margem e placa', controls: [
+    { path: 'margin', label: 'Margem (zona silenciosa)', kind: 'range', min: 0, max: 12, unit: ' módulos', hint: 'O padrão do QR Code é 4. Menos que isso pode impedir a leitura.' },
+    { path: 'block.radius', label: 'Cantos da placa', kind: 'range', min: 0, max: 25, unit: '%' },
+    { path: 'block.borderWidth', label: 'Borda da placa', kind: 'range', min: 0, max: 24, unit: '' },
+    { path: 'block.borderColor', label: 'Cor da borda', kind: 'color', showIf: (design) => design.block.borderWidth > 0 },
+    { path: 'block.shadow', label: 'Sombra sob a placa', kind: 'switch' }
+  ] },
+  { title: 'Avançado do QR', controls: [
+    { path: 'ecl', label: 'Correção de erros', kind: 'select', options: QR_ECL_OPTIONS, hint: 'Mais correção suporta mais dano e logo, mas gera um código mais denso.' },
+    { path: 'mask', label: 'Padrão de máscara', kind: 'select', options: QR_MASK_OPTIONS },
+    { path: 'version', label: 'Versão mínima (0 = automática)', kind: 'range', min: 0, max: 40, unit: '' }
+  ] }
+];
+
+const QR_LOGO_CONTROLS = [
+  { path: 'logo.kind', label: 'Tipo de logo', kind: 'seg', options: [['none', 'Nenhum'], ['icon', 'Ícone'], ['text', 'Texto'], ['image', 'Imagem']] },
+  { path: 'logo.icon', label: 'Ícone', kind: 'select', options: Object.keys(qrR.ICONS).map((id) => [id, qrR.ICON_NAMES[id] || id]), showIf: qrShown('logo.kind', 'icon') },
+  { path: 'logo.text', label: 'Texto (até 6 letras)', kind: 'text', max: 6, showIf: qrShown('logo.kind', 'text') },
+  { action: 'logo-image', label: 'Escolher imagem do logo…', kind: 'button', showIf: qrShown('logo.kind', 'image') },
+  { path: 'logo.size', label: 'Tamanho do logo', kind: 'range', min: 8, max: 32, unit: '%', showIf: (design) => design.logo.kind !== 'none' },
+  { path: 'logo.shape', label: 'Formato da placa', kind: 'seg', options: [['circle', 'Círculo'], ['rounded', 'Arredondada'], ['square', 'Quadrada']], showIf: (design) => design.logo.kind !== 'none' },
+  { path: 'logo.plate', label: 'Placa atrás do logo', kind: 'switch', showIf: (design) => design.logo.kind !== 'none' },
+  { path: 'logo.plateColor', label: 'Cor da placa', kind: 'color', showIf: (design) => design.logo.kind !== 'none' && design.logo.plate },
+  { path: 'logo.color', label: 'Cor do ícone/texto', kind: 'color', showIf: qrShown('logo.kind', ['icon', 'text']) },
+  { path: 'logo.padding', label: 'Respiro interno', kind: 'range', min: 0, max: 40, unit: '%', showIf: (design) => design.logo.kind !== 'none' },
+  { path: 'logo.borderWidth', label: 'Borda da placa', kind: 'range', min: 0, max: 12, unit: '', showIf: (design) => design.logo.kind !== 'none' },
+  { path: 'logo.borderColor', label: 'Cor da borda', kind: 'color', showIf: (design) => design.logo.kind !== 'none' && design.logo.borderWidth > 0 },
+  { path: 'logo.clear', label: 'Apagar os módulos sob o logo', kind: 'switch', hint: 'Desligado: o logo fica por cima e depende só da correção de erros.', showIf: (design) => design.logo.kind !== 'none' }
+];
+
+const qrHasLayout = (design) => design.layout.id !== 'plain';
+const QR_FRAME_CONTROLS = [
+  { path: 'layout.radius', label: 'Cantos arredondados do cartão', kind: 'range', min: 0, max: 30, unit: '%', showIf: qrHasLayout },
+  { title: 'Fundo do cartão', showIf: qrHasLayout },
+  { path: 'layout.bg.mode', label: 'Tipo', kind: 'seg', options: [['solid', 'Sólido'], ['linear', 'Degradê'], ['radial', 'Radial'], ['transparent', 'Nenhum']], showIf: qrHasLayout },
+  { path: 'layout.bg.c1', label: 'Cor 1', kind: 'color', showIf: (design) => qrHasLayout(design) && design.layout.bg.mode !== 'transparent' },
+  { path: 'layout.bg.c2', label: 'Cor 2', kind: 'color', showIf: (design) => qrHasLayout(design) && ['linear', 'radial'].includes(design.layout.bg.mode) },
+  { path: 'layout.bg.angle', label: 'Ângulo', kind: 'range', min: 0, max: 360, unit: '°', showIf: (design) => qrHasLayout(design) && design.layout.bg.mode === 'linear' },
+  { title: 'Imagem de fundo', showIf: qrHasLayout },
+  { path: 'layout.bg.art', label: 'Arte', kind: 'art', artKind: 'bg', showIf: qrHasLayout },
+  { action: 'bg-import', label: 'Importar imagem de fundo…', kind: 'button', showIf: qrHasLayout },
+  { path: 'layout.bg.artFit', label: 'Ajuste', kind: 'seg', options: [['cover', 'Preencher'], ['contain', 'Conter']], showIf: (design) => qrHasLayout(design) && Boolean(design.layout.bg.art) },
+  { path: 'layout.bg.artOpacity', label: 'Opacidade da arte', kind: 'range', min: 0, max: 100, unit: '%', showIf: (design) => qrHasLayout(design) && Boolean(design.layout.bg.art) },
+  { path: 'layout.bg.overlay', label: 'Película escura/clara por cima', kind: 'range', min: 0, max: 90, unit: '%', showIf: qrHasLayout },
+  { path: 'layout.bg.overlayColor', label: 'Cor da película', kind: 'color', showIf: (design) => qrHasLayout(design) && design.layout.bg.overlay > 0 },
+  { title: 'Decoração vetorial', showIf: qrHasLayout },
+  { path: 'layout.deco', label: 'Padrão (some quando há imagem de fundo)', kind: 'select', options: qrOptions(qrR.DECOS), showIf: qrHasLayout },
+  { path: 'layout.decoColor', label: 'Cor do padrão', kind: 'color', showIf: (design) => qrHasLayout(design) && design.layout.deco !== 'none' },
+  { path: 'layout.decoOpacity', label: 'Intensidade', kind: 'range', min: 0, max: 100, unit: '%', showIf: (design) => qrHasLayout(design) && design.layout.deco !== 'none' },
+  { title: 'Ornamento (imagem com transparência)', showIf: qrHasLayout },
+  { path: 'layout.ornament', label: 'Ornamento', kind: 'art', artKind: 'orn', showIf: qrHasLayout },
+  { action: 'orn-import', label: 'Importar ornamento…', kind: 'button', showIf: qrHasLayout },
+  { path: 'layout.ornamentPos', label: 'Posição', kind: 'select', options: [['corners', 'Cantos opostos'], ['tl', 'Canto superior esquerdo'], ['tr', 'Canto superior direito'], ['bl', 'Canto inferior esquerdo'], ['br', 'Canto inferior direito'], ['top', 'Topo'], ['bottom', 'Base'], ['center', 'Centro (molduras)']], showIf: (design) => qrHasLayout(design) && Boolean(design.layout.ornament) },
+  { path: 'layout.ornamentScale', label: 'Tamanho (molduras: 100%)', kind: 'range', min: 8, max: 110, unit: '%', showIf: (design) => qrHasLayout(design) && Boolean(design.layout.ornament) },
+  { path: 'layout.ornamentOpacity', label: 'Opacidade', kind: 'range', min: 0, max: 100, unit: '%', showIf: (design) => qrHasLayout(design) && Boolean(design.layout.ornament) }
+];
+
+/* ───────── helpers ───────── */
+const qrErrorText = (error) => String(error?.message || error || 'Erro desconhecido').replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '');
+const qrSvgUrl = (svg) => `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+const qrAssetsForRender = () => ({ art: qr.assets.art, logoImage: qr.assets.logoImage, fonts: { inter: qr.assets.inter } });
+const qrFieldsOf = (type) => (qr.fields[type] ||= qrP.defaultFields(type));
+const qrSnapshot = () => JSON.stringify(qr.design);
+
+function qrTemplateDesign(template) {
+  const merged = qrR.mergeDeep(qrR.clone(qrR.DEFAULT_DESIGN), template.patch || template.design || {});
+  const design = qrR.sanitizeDesign(merged);
+  design.type = qr.design.type;
+  return design;
+}
+
+/* ───────── controls ───────── */
+function qrBuildControl(spec) {
+  if (spec.title) { const heading = document.createElement('h4'); heading.className = 'qr-sub'; heading.textContent = spec.title; qr.controls.push({ el: heading, showIf: spec.showIf, kind: 'heading' }); return heading; }
+  const entry = { spec, showIf: spec.showIf, kind: spec.kind };
+  let wrapper;
+  if (spec.kind === 'button') {
+    wrapper = document.createElement('button');
+    wrapper.type = 'button'; wrapper.className = 'btn btn-sm qr-action'; wrapper.textContent = spec.label;
+    wrapper.addEventListener('click', () => qrAction(spec.action));
+  } else if (spec.kind === 'switch') {
+    wrapper = document.createElement('label'); wrapper.className = 'switch-row';
+    wrapper.innerHTML = `<span class="switch-copy"><strong></strong>${spec.hint ? '<small></small>' : ''}</span><input type="checkbox"><span class="switch"></span>`;
+    wrapper.querySelector('strong').textContent = spec.label;
+    if (spec.hint) wrapper.querySelector('small').textContent = spec.hint;
+    entry.input = wrapper.querySelector('input');
+    entry.input.addEventListener('change', () => qrChange(spec.path, entry.input.checked));
+  } else {
+    wrapper = document.createElement('div'); wrapper.className = 'field qr-ctl';
+    const label = document.createElement('span'); label.textContent = spec.label; wrapper.append(label);
+    if (spec.kind === 'select' || spec.kind === 'art') {
+      entry.input = document.createElement('select'); wrapper.append(entry.input);
+      if (spec.kind === 'select') entry.input.append(...spec.options.map(([value, text]) => new Option(text, value)));
+      entry.input.addEventListener('change', () => qrChange(spec.path, entry.input.value));
+    } else if (spec.kind === 'range') {
+      const row = document.createElement('div'); row.className = 'qr-range';
+      entry.input = document.createElement('input'); entry.input.type = 'range'; entry.input.min = spec.min; entry.input.max = spec.max; entry.input.step = spec.step || 1;
+      entry.output = document.createElement('output'); entry.output.className = 'num';
+      row.append(entry.input, entry.output); wrapper.append(row);
+      entry.input.addEventListener('input', () => { entry.output.textContent = `${entry.input.value}${spec.unit || ''}`; setRangeFill(entry.input); qrChange(spec.path, Number(entry.input.value), spec.path); });
+    } else if (spec.kind === 'color') {
+      const row = document.createElement('div'); row.className = 'qr-color';
+      entry.input = document.createElement('input'); entry.input.type = 'color'; entry.input.setAttribute('aria-label', spec.label);
+      entry.hex = document.createElement('input'); entry.hex.type = 'text'; entry.hex.maxLength = 7; entry.hex.spellcheck = false; entry.hex.className = 'pg-mono'; entry.hex.setAttribute('aria-label', `${spec.label} (hexadecimal)`);
+      row.append(entry.input, entry.hex); wrapper.append(row);
+      entry.input.addEventListener('input', () => { entry.hex.value = entry.input.value; qrChange(spec.path, entry.input.value, spec.path); });
+      entry.hex.addEventListener('input', () => { const value = entry.hex.value.trim().startsWith('#') ? entry.hex.value.trim() : `#${entry.hex.value.trim()}`; if (/^#[0-9a-f]{6}$/i.test(value)) { entry.input.value = value.toLowerCase(); qrChange(spec.path, value.toLowerCase(), spec.path); } });
+      entry.hex.addEventListener('blur', () => { entry.hex.value = qrR.getPath(qr.design, spec.path); });
+    } else if (spec.kind === 'seg') {
+      entry.input = document.createElement('div'); entry.input.className = 'seg seg-block'; entry.input.setAttribute('role', 'group'); entry.input.setAttribute('aria-label', spec.label);
+      entry.input.innerHTML = '<span class="seg-thumb" aria-hidden="true"></span>';
+      for (const [value, text] of spec.options) { const button = document.createElement('button'); button.type = 'button'; button.className = 'seg-item'; button.dataset.value = value; button.textContent = text; entry.input.append(button); }
+      wrapper.append(entry.input); segObserver.observe(entry.input);
+      entry.input.addEventListener('click', (event) => { const button = event.target.closest('.seg-item'); if (button) qrChange(spec.path, button.dataset.value); });
+    } else {
+      entry.input = document.createElement('input'); entry.input.type = 'text'; if (spec.max) entry.input.maxLength = spec.max; entry.input.spellcheck = false; wrapper.append(entry.input);
+      entry.input.addEventListener('input', () => qrChange(spec.path, entry.input.value, spec.path));
+    }
+    if (spec.hint) { const hint = document.createElement('small'); hint.className = 'qr-hint'; hint.textContent = spec.hint; wrapper.append(hint); }
+  }
+  entry.el = wrapper;
+  qr.controls.push(entry);
+  return wrapper;
+}
+
+function qrSyncControl(entry) {
+  const { spec } = entry;
+  if (!spec || !spec.path) return;
+  const value = qrR.getPath(qr.design, spec.path);
+  if (spec.kind === 'switch') entry.input.checked = Boolean(value);
+  else if (spec.kind === 'range') { entry.input.value = value; entry.output.textContent = `${value}${spec.unit || ''}`; setRangeFill(entry.input); }
+  else if (spec.kind === 'color') { entry.input.value = value; if (document.activeElement !== entry.hex) entry.hex.value = value; }
+  else if (spec.kind === 'seg') { for (const button of entry.input.querySelectorAll('.seg-item')) button.classList.toggle('active', button.dataset.value === String(value)); syncSeg(entry.input); }
+  else if (spec.kind === 'art') qrFillArtSelect(entry, value);
+  else if (document.activeElement !== entry.input) entry.input.value = value;
+}
+
+function qrFillArtSelect(entry, current) {
+  const wanted = entry.spec.artKind;
+  const options = [['', 'Nenhuma']];
+  for (const art of Object.values(qr.assets.art)) {
+    const known = qrT.ART.find((item) => item.id === art.id);
+    const kind = known ? known.kind : art.id.startsWith('custom-orn') ? 'orn' : art.id.startsWith('custom-bg') ? 'bg' : art.id.startsWith('bg-') ? 'bg' : (art.id.startsWith('orn-') || art.id.startsWith('frame-')) ? 'orn' : 'any';
+    if (kind === 'any' || kind === wanted || (wanted === 'orn' && kind === 'frame')) options.push([art.id, known ? known.name : art.id.startsWith('custom') ? art.name || 'Minha imagem' : art.id]);
+  }
+  if (current && !options.some(([value]) => value === current)) options.push([current, `${current} (arquivo ausente)`]);
+  const signature = JSON.stringify(options);
+  if (entry.signature !== signature) { entry.signature = signature; entry.input.replaceChildren(...options.map(([value, text]) => new Option(text, value))); }
+  entry.input.value = current;
+}
+
+function qrUpdateVisibility() {
+  for (const entry of qr.controls) if (entry.showIf) entry.el.classList.toggle('hidden', !entry.showIf(qr.design));
+}
+function qrSyncAllControls() {
+  for (const entry of qr.controls) qrSyncControl(entry);
+  qrUpdateVisibility();
+  for (const entry of qr.controls) if (entry.kind === 'seg' && !entry.el.classList.contains('hidden')) syncSeg(entry.input);
+}
+
+/* ───────── design changes (with undo) ───────── */
+function qrPushHistory(group) {
+  const now = Date.now();
+  const snapshot = qrSnapshot();
+  if (qr.history.length && qr.history[qr.history.length - 1] === snapshot) return;
+  if (group && group === qr.lastGroup && now - qr.lastPush < 900 && qr.history.length > 1) qr.history[qr.history.length - 1] = snapshot;
+  else qr.history.push(snapshot);
+  if (qr.history.length > 80) qr.history.shift();
+  qr.lastPush = now; qr.lastGroup = group || '';
+  qr.future = [];
+  qrUpdateHistoryButtons();
+}
+function qrUpdateHistoryButtons() {
+  qrEl.undo.disabled = qr.history.length < 2;
+  qrEl.redo.disabled = qr.future.length === 0;
+}
+function qrRestore(snapshot) {
+  qr.design = qrR.sanitizeDesign(JSON.parse(snapshot));
+  qrSyncAll();
+}
+function qrUndo() { if (qr.history.length < 2) return; qr.future.push(qr.history.pop()); qrRestore(qr.history[qr.history.length - 1]); qrUpdateHistoryButtons(); }
+function qrRedo() { if (!qr.future.length) return; const snapshot = qr.future.pop(); qr.history.push(snapshot); qrRestore(snapshot); qrUpdateHistoryButtons(); }
+
+function qrChange(path, value, group) {
+  qrR.setPath(qr.design, path, value);
+  qr.design = qrR.sanitizeDesign(qr.design);
+  qrPushHistory(group || path);
+  qrUpdateVisibility();
+  qrAfterDesign(path);
+}
+function qrAfterDesign(path = '') {
+  if (path.startsWith('layout.id') || path.startsWith('layout.')) qr.galleries.layouts = '';
+  qr.galleries.templates = '';
+  qrScheduleRender();
+  qrScheduleSave();
+  if (path === 'logo.kind' || path === 'layout.id') qrRefreshTextsPanel();
+}
+function qrSyncAll() {
+  qrSyncAllControls();
+  qrRefreshContentPanel();
+  qrRefreshTextsPanel();
+  qrRenderGalleriesIfVisible();
+  qrScheduleRender();
+  qrScheduleSave();
+}
+
+function qrAction(action) {
+  if (action === 'invert') {
+    const { fill, background } = qr.design;
+    const swap = fill.c1;
+    qr.design.fill.c1 = background.c1; qr.design.background.c1 = swap;
+    qr.design.background.mode = qr.design.background.mode === 'transparent' ? 'solid' : qr.design.background.mode;
+    qrPushHistory('invert'); qrSyncAllControls(); qrAfterDesign('fill.c1');
+  } else if (action === 'logo-image') qrImportImage('logo');
+  else if (action === 'bg-import') qrImportImage('bg');
+  else if (action === 'orn-import') qrImportImage('orn');
+}
+
+async function qrImportImage(purpose) {
+  try {
+    const image = await window.arc.qrImportImage(purpose === 'logo' ? 'logo' : 'image');
+    if (!image) return;
+    if (purpose === 'logo') { qr.assets.logoImage = image.dataUrl; qr.assets.logoName = image.name; qr.design.logo.kind = 'image'; }
+    else {
+      const id = purpose === 'bg' ? 'custom-bg' : 'custom-orn';
+      qr.assets.art[id] = { id, name: image.name, dataUrl: image.dataUrl, width: image.width, height: image.height, hasAlpha: image.hasAlpha };
+      if (purpose === 'bg') qr.design.layout.bg.art = id; else qr.design.layout.ornament = id;
+    }
+    qrPushHistory('import'); qrSyncAllControls(); qrAfterDesign('logo.kind');
+    showPasteToast(`${purpose === 'logo' ? 'Logo' : 'Imagem'} carregado: ${image.name}`);
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+
+/* ───────── content (type + fields) ───────── */
+const qrContent = {};
+function qrBuildContentPanel(panel) {
+  const grid = document.createElement('div'); grid.className = 'qr-types'; grid.setAttribute('role', 'group'); grid.setAttribute('aria-label', 'Tipo de conteúdo');
+  for (const type of qrP.TYPES) {
+    const button = document.createElement('button');
+    button.type = 'button'; button.className = 'qr-type'; button.dataset.type = type.id;
+    button.innerHTML = `<svg class="i" aria-hidden="true"><use href="#i-${type.icon}"/></svg><span></span>`;
+    button.querySelector('span').textContent = type.label;
+    button.addEventListener('click', () => { qr.design.type = type.id; qrPushHistory('type'); qrRefreshContentPanel(); qrScheduleRender(); qrScheduleSave(); });
+    grid.append(button);
+  }
+  qrContent.grid = grid;
+  qrContent.hint = document.createElement('p'); qrContent.hint.className = 'pg-attach-note';
+  qrContent.form = document.createElement('div'); qrContent.form.className = 'qr-fields';
+  qrContent.messages = document.createElement('div'); qrContent.messages.className = 'qr-messages';
+  const actions = document.createElement('div'); actions.className = 'qr-row-actions';
+  const sample = document.createElement('button'); sample.type = 'button'; sample.className = 'btn btn-sm btn-ghost'; sample.textContent = 'Preencher exemplo';
+  sample.addEventListener('click', qrFillSample);
+  const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'btn btn-sm btn-ghost btn-danger'; clear.textContent = 'Limpar conteúdo';
+  clear.addEventListener('click', () => { qr.fields[qr.design.type] = qrP.defaultFields(qr.design.type); qrRenderFields(); qrScheduleRender(); });
+  actions.append(sample, clear);
+  panel.append(grid, qrContent.hint, qrContent.form, qrContent.messages, actions);
+}
+const QR_SAMPLES = {
+  url: { url: 'https://arcxp.online' }, text: { text: 'Olá! Este texto está dentro de um QR Code.' },
+  wifi: { ssid: 'MinhaRede', password: 'senha-segura-123', security: 'WPA', hidden: false },
+  vcard: { first: 'Maria', last: 'Silva', org: 'Studio Silva', title: 'Designer', mobile: '+55 11 99999-9999', email: 'maria@exemplo.com', website: 'exemplo.com.br', city: 'São Paulo', state: 'SP', country: 'Brasil' },
+  whatsapp: { number: '5511999999999', message: 'Olá! Vim pelo QR Code.' }, email: { to: 'contato@exemplo.com', subject: 'Contato pelo QR Code', body: 'Olá!' },
+  phone: { number: '+55 11 99999-9999' }, sms: { number: '+55 11 99999-9999', message: 'Olá!' },
+  geo: { lat: '-23.5505', lon: '-46.6333', label: 'Praça da Sé', mode: 'maps' },
+  event: { title: 'Festa de aniversário', location: 'Salão de festas', start: '2027-03-20T20:00', end: '2027-03-21T00:00', allDay: false, description: 'Confirme presença!' },
+  pix: { key: 'exemplo@email.com', name: 'LOJA EXEMPLO', city: 'SAO PAULO', amount: '25,90', txid: 'LOJA2027', description: 'Pedido' },
+  social: { network: 'instagram', user: 'arcanoxp' }
+};
+function qrFillSample() {
+  qr.fields[qr.design.type] = { ...qrP.defaultFields(qr.design.type), ...(QR_SAMPLES[qr.design.type] || {}) };
+  qrRenderFields(); qrScheduleRender();
+}
+function qrRefreshContentPanel() {
+  if (!qrContent.grid) return;
+  for (const button of qrContent.grid.children) button.classList.toggle('active', button.dataset.type === qr.design.type);
+  qrContent.hint.textContent = qrP.typeById(qr.design.type).hint;
+  qrRenderFields();
+}
+function qrRenderFields() {
+  const type = qrP.typeById(qr.design.type);
+  const values = qrFieldsOf(type.id);
+  qrContent.form.replaceChildren();
+  for (const field of type.fields) {
+    let control;
+    if (field.kind === 'checkbox') {
+      control = document.createElement('label'); control.className = 'switch-row';
+      control.innerHTML = '<span class="switch-copy"><strong></strong></span><input type="checkbox"><span class="switch"></span>';
+      control.querySelector('strong').textContent = field.label;
+      const input = control.querySelector('input'); input.checked = Boolean(values[field.key]);
+      input.addEventListener('change', () => { values[field.key] = input.checked; qrScheduleRender(); });
+    } else {
+      control = document.createElement('label'); control.className = 'field';
+      const label = document.createElement('span'); label.textContent = field.label;
+      if (field.required) { const mark = document.createElement('small'); mark.textContent = 'obrigatório'; label.append(mark); }
+      let input;
+      if (field.kind === 'textarea') { input = document.createElement('textarea'); input.rows = field.rows || 3; }
+      else if (field.kind === 'select') { input = document.createElement('select'); input.append(...field.options.map(([value, text]) => new Option(text, value))); }
+      else { input = document.createElement('input'); input.type = field.kind === 'datetime' ? 'datetime-local' : 'text'; }
+      if (field.max && field.kind !== 'select') input.maxLength = field.max;
+      if (field.placeholder) input.placeholder = field.placeholder;
+      input.spellcheck = false;
+      input.value = values[field.key] === '' && field.kind === 'select' ? field.value || '' : values[field.key];
+      if (field.kind === 'select' && !values[field.key]) values[field.key] = input.value;
+      input.addEventListener(field.kind === 'select' ? 'change' : 'input', () => { values[field.key] = input.value; qrScheduleRender(); });
+      control.append(label, input);
+    }
+    qrContent.form.append(control);
+  }
+}
+
+/* ───────── texts panel ───────── */
+const qrTextsBox = {};
+function qrBuildTextsPanel(panel) {
+  qrTextsBox.note = document.createElement('p'); qrTextsBox.note.className = 'pg-attach-note';
+  qrTextsBox.body = document.createElement('div'); qrTextsBox.body.className = 'qr-text-blocks';
+  panel.append(qrTextsBox.note, qrTextsBox.body);
+  for (const role of ['title', 'subtitle', 'cta', 'footer']) {
+    const block = document.createElement('section'); block.className = 'qr-block'; block.dataset.role = role;
+    const head = document.createElement('h4'); head.className = 'qr-sub'; head.textContent = QR_ROLE_LABEL[role];
+    block.append(head);
+    const specs = [
+      { path: `layout.texts.${role}.on`, label: 'Mostrar', kind: 'switch' },
+      { path: `layout.texts.${role}.text`, label: 'Texto', kind: 'text', max: 120 },
+      { path: `layout.texts.${role}.color`, label: 'Cor do texto', kind: 'color' },
+      { path: `layout.texts.${role}.font`, label: 'Fonte', kind: 'select', options: qrOptions(qrR.FONTS) },
+      { path: `layout.texts.${role}.weight`, label: 'Peso', kind: 'select', options: QR_WEIGHT_OPTIONS },
+      { path: `layout.texts.${role}.size`, label: 'Tamanho', kind: 'range', min: 40, max: 220, unit: '%' },
+      { path: `layout.texts.${role}.caps`, label: 'Tudo em maiúsculas', kind: 'switch' }
+    ];
+    if (role === 'cta') specs.push({ path: 'layout.texts.cta.pill', label: 'Botão', kind: 'seg', options: [['pill', 'Preenchido'], ['outline', 'Contorno'], ['none', 'Só texto']] }, { path: 'layout.texts.cta.pillColor', label: 'Cor do botão', kind: 'color', showIf: (design) => design.layout.texts.cta.pill !== 'none' });
+    for (const spec of specs) block.append(qrBuildControl(spec));
+    qrTextsBox.body.append(block);
+  }
+}
+function qrRefreshTextsPanel() {
+  if (!qrTextsBox.note) return;
+  const layout = qrR.LAYOUTS.find((item) => item.id === qr.design.layout.id) || qrR.LAYOUTS[0];
+  qrTextsBox.note.textContent = layout.roles.length ? `Moldura atual: ${layout.name}. Textos que ela não usa ficam desativados.` : 'A moldura "Só o código" não tem textos. Escolha outra na aba Moldura para usar títulos e chamadas.';
+  for (const block of qrTextsBox.body.children) block.classList.toggle('qr-off', !layout.roles.includes(block.dataset.role));
+}
+
+/* ───────── galleries (templates and layouts) ───────── */
+function qrThumb(design, title, caption, active, onClick) {
+  const button = document.createElement('button');
+  button.type = 'button'; button.className = `qr-tile${active ? ' active' : ''}`; button.title = title;
+  const picture = document.createElement('span'); picture.className = 'qr-tile-img';
+  const image = document.createElement('img'); image.alt = ''; image.draggable = false; image.decoding = 'async';
+  try { image.src = qrSvgUrl(qrR.render(design, qr.sample || qr.info, qrAssetsForRender()).svg); } catch { image.alt = 'Prévia indisponível'; }
+  picture.append(image);
+  const label = document.createElement('span'); label.className = 'qr-tile-name'; label.textContent = caption;
+  button.append(picture, label);
+  button.addEventListener('click', onClick);
+  return button;
+}
+
+function qrApplyTemplate(template) {
+  const keepEmptyType = qr.payload.empty && template.type;
+  const design = qrTemplateDesign(template);
+  if (keepEmptyType) design.type = template.type;
+  qr.design = design;
+  qrPushHistory('template');
+  qrSyncAll();
+  showPasteToast(`Modelo aplicado: ${template.name}.`);
+}
+
+function qrRenderTemplates(panel) {
+  const signature = `${Object.keys(qr.assets.art).length}|${qr.custom.length}|${qr.sample ? 1 : 0}`;
+  if (qr.galleries.templates === signature && panel.childElementCount) return;
+  qr.galleries.templates = signature;
+  panel.replaceChildren();
+  const save = document.createElement('div'); save.className = 'qr-save-template';
+  const name = document.createElement('input'); name.type = 'text'; name.maxLength = 40; name.placeholder = 'Nome do meu modelo'; name.setAttribute('aria-label', 'Nome do modelo');
+  const button = document.createElement('button'); button.type = 'button'; button.className = 'btn btn-sm'; button.textContent = 'Salvar o visual atual como modelo';
+  button.addEventListener('click', () => {
+    const title = name.value.trim() || `Meu modelo ${qr.custom.length + 1}`;
+    const design = qrR.clone(qr.design); delete design.type;
+    qr.custom.push({ id: `meu-${Date.now().toString(36)}`, name: title.slice(0, 40), design });
+    qr.custom = qr.custom.slice(-40);
+    name.value = ''; qr.galleries.templates = ''; qrRenderGalleriesIfVisible(); qrScheduleSave();
+    showPasteToast(`Modelo salvo: ${title}.`);
+  });
+  save.append(name, button);
+  panel.append(save);
+
+  if (qr.custom.length) {
+    const group = document.createElement('section'); const heading = document.createElement('h4'); heading.className = 'qr-sub'; heading.textContent = 'Meus modelos';
+    const grid = document.createElement('div'); grid.className = 'qr-grid';
+    for (const item of qr.custom) {
+      const tile = qrThumb(qrTemplateDesign(item), item.name, item.name, false, () => qrApplyTemplate(item));
+      const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'qr-tile-x'; remove.title = `Excluir "${item.name}"`; remove.setAttribute('aria-label', `Excluir ${item.name}`); remove.innerHTML = '<svg class="i i-xs" aria-hidden="true"><use href="#i-x"/></svg>';
+      remove.addEventListener('click', (event) => { event.stopPropagation(); qr.custom = qr.custom.filter((candidate) => candidate.id !== item.id); qr.galleries.templates = ''; qrRenderGalleriesIfVisible(); qrScheduleSave(); });
+      const cell = document.createElement('div'); cell.className = 'qr-cell'; cell.append(tile, remove); grid.append(cell);
+    }
+    group.append(heading, grid); panel.append(group);
+  }
+  for (const [categoryId, categoryName] of qrT.CATEGORIES) {
+    const items = qrT.TEMPLATES.filter((template) => template.cat === categoryId);
+    if (!items.length) continue;
+    const group = document.createElement('section'); const heading = document.createElement('h4'); heading.className = 'qr-sub'; heading.textContent = categoryName;
+    const grid = document.createElement('div'); grid.className = 'qr-grid';
+    for (const template of items) grid.append(qrThumb(qrTemplateDesign(template), template.desc, template.name, false, () => qrApplyTemplate(template)));
+    group.append(heading, grid); panel.append(group);
+  }
+}
+
+function qrRenderLayouts(panel) {
+  const signature = `${JSON.stringify(qr.design)}|${Object.keys(qr.assets.art).length}`;
+  if (qr.galleries.layouts === signature) return;
+  qr.galleries.layouts = signature;
+  const grid = panel.querySelector('.qr-layout-grid');
+  grid.replaceChildren();
+  for (const layout of qrR.LAYOUTS) {
+    const design = qrR.clone(qr.design);
+    design.layout.id = layout.id;
+    const texts = design.layout.texts;
+    const samples = { title: 'Título', subtitle: 'Subtítulo da chamada', cta: texts.cta.text || 'ESCANEIE', footer: 'rodapé' };
+    for (const role of layout.roles) { texts[role].on = true; if (!texts[role].text.trim()) texts[role].text = samples[role]; }
+    grid.append(qrThumb(qrR.sanitizeDesign(design), layout.desc, layout.name, layout.id === qr.design.layout.id, () => { qr.design.layout.id = layout.id; qrPushHistory('layout'); qrSyncAllControls(); qrAfterDesign('layout.id'); qr.galleries.layouts = ''; qrRenderGalleriesIfVisible(); }));
+  }
+}
+
+function qrRenderGalleriesIfVisible() {
+  const panels = qr.panelEls || {};
+  if (qr.tab === 'templates' && panels.templates) qrRenderTemplates(panels.templates);
+  if (qr.tab === 'frame' && panels.frame) qrRenderLayouts(panels.frame);
+}
+
+/* ───────── panels ───────── */
+function qrBuildPanels() {
+  qr.panelEls = {};
+  for (const id of QR_TAB_ORDER) { const panel = document.createElement('div'); panel.className = `qr-panel${id === qr.tab ? '' : ' hidden'}`; panel.dataset.panel = id; qr.panelEls[id] = panel; qrEl.panels.append(panel); }
+  qrBuildContentPanel(qr.panelEls.content);
+  for (const section of QR_CODE_SECTIONS) {
+    const box = document.createElement('section'); box.className = 'qr-section';
+    const heading = document.createElement('h4'); heading.className = 'qr-sub'; heading.textContent = section.title; box.append(heading);
+    for (const control of section.controls) box.append(qrBuildControl(control));
+    qr.panelEls.code.append(box);
+  }
+  for (const control of QR_LOGO_CONTROLS) qr.panelEls.logo.append(qrBuildControl(control));
+  const logoNote = document.createElement('p'); logoNote.className = 'pg-attach-note'; logoNote.textContent = 'O logo cobre o centro do código. Com logo, a correção de erros sobe para H automaticamente (se estiver em "Automática").';
+  qr.panelEls.logo.prepend(logoNote);
+  const layoutGrid = document.createElement('div'); layoutGrid.className = 'qr-grid qr-layout-grid';
+  const layoutHead = document.createElement('h4'); layoutHead.className = 'qr-sub'; layoutHead.textContent = 'Escolha a moldura';
+  qr.panelEls.frame.append(layoutHead, layoutGrid);
+  const artNote = document.createElement('p'); artNote.className = 'pg-attach-note qr-art-note';
+  qrEl.artNote = artNote;
+  const artButtons = document.createElement('div'); artButtons.className = 'qr-row-actions';
+  const open = document.createElement('button'); open.type = 'button'; open.className = 'btn btn-sm btn-ghost'; open.textContent = 'Abrir pasta de artes';
+  open.addEventListener('click', () => window.arc.qrOpenArtFolder().catch((error) => showPasteToast(qrErrorText(error), 'error')));
+  const reload = document.createElement('button'); reload.type = 'button'; reload.className = 'btn btn-sm btn-ghost'; reload.textContent = 'Recarregar artes';
+  reload.addEventListener('click', () => qrLoadAssets(true));
+  artButtons.append(open, reload);
+  qr.panelEls.frame.append(artNote, artButtons);
+  for (const control of QR_FRAME_CONTROLS) qr.panelEls.frame.append(qrBuildControl(control));
+  qrBuildTextsPanel(qr.panelEls.texts);
+}
+
+function qrShowTab(id) {
+  qr.tab = id;
+  for (const [key, panel] of Object.entries(qr.panelEls)) panel.classList.toggle('hidden', key !== id);
+  for (const button of qrEl.tabs.querySelectorAll('[data-qr-tab]')) button.classList.toggle('active', button.dataset.qrTab === id);
+  syncSeg(qrEl.tabs);
+  qrRenderGalleriesIfVisible();
+  qrSyncAllControls();
+}
+
+/* ───────── rendering ───────── */
+async function qrMatrixFor(text, design) {
+  const ecl = qrR.chooseEcl(design);
+  const request = { text, ecl, mask: design.mask === 'auto' ? 'auto' : Number(design.mask), version: design.version > 0 ? design.version : 'auto' };
+  const key = JSON.stringify(request);
+  if (qr.matrixCache.has(key)) return qr.matrixCache.get(key);
+  const info = await window.arc.qrMatrix(request);
+  qr.matrixCache.set(key, info);
+  if (qr.matrixCache.size > 24) qr.matrixCache.delete(qr.matrixCache.keys().next().value);
+  return info;
+}
+
+function qrScheduleRender() {
+  clearTimeout(qr.renderTimer);
+  qr.renderTimer = setTimeout(qrRender, 50);
+}
+
+async function qrRender() {
+  const seq = ++qr.renderSeq;
+  const type = qr.design.type;
+  qr.payload = qrP.buildPayload(type, qrFieldsOf(type));
+  qr.matrixError = '';
+  let info = null;
+  qr.usingSample = !qr.payload.text;
+  if (!qr.sample) {
+    try { qr.sample = await window.arc.qrMatrix({ text: 'https://arcxp.online', ecl: 'H' }); qr.galleries = { templates: '', layouts: '' }; qrRenderGalleriesIfVisible(); } catch { /* the main process is unavailable */ }
+  }
+  try {
+    info = qr.payload.text ? await qrMatrixFor(qr.payload.text, qr.design) : qr.sample;
+  } catch (error) {
+    qr.matrixError = qrErrorText(error);
+    info = qr.sample; qr.usingSample = true;
+  }
+  if (seq !== qr.renderSeq || !info) return;
+  qr.info = info;
+  let result;
+  try { result = qrR.render(qr.design, info, qrAssetsForRender()); } catch (error) { qrEl.status.textContent = 'erro ao desenhar'; qrEl.status.className = 'chip chip-err'; console.error(error); return; }
+  qr.render = result;
+  qrEl.preview.src = qrSvgUrl(result.svg);
+  qrEl.stage.classList.toggle('transparent', qr.design.layout.id === 'plain' ? qr.design.background.mode === 'transparent' : qr.design.layout.bg.mode === 'transparent');
+  qrEl.copy.disabled = qrEl.save.disabled = !qr.payload.text || Boolean(qr.matrixError);
+  qrUpdateSide();
+  qrScheduleVerify();
+  if (qr.tab === 'frame') { clearTimeout(qr.galleryTimer); qr.galleryTimer = setTimeout(qrRenderGalleriesIfVisible, 350); }
+}
+
+function qrExportPx() { return qr.exportFormat === 'svg' ? 0 : qr.exportWidth; }
+function qrPrintWidthMm() { return qr.printMm > 0 ? qr.printMm : (qr.render ? qr.render.mm[0] : 0); }
+
+function qrUpdateSide() {
+  const { payload, info, render } = qr;
+  const items = [];
+  if (qr.matrixError) items.push({ level: 'bad', text: qr.matrixError });
+  for (const message of payload.errors) items.push({ level: payload.empty ? 'info' : 'bad', text: message });
+  if (qr.usingSample && !qr.matrixError) items.push({ level: 'info', text: 'A prévia mostra um código de exemplo. Preencha o conteúdo para gerar o seu.' });
+  const verifyItem = { idle: null, testing: { level: 'info', text: 'Testando a leitura…' }, ok: { level: 'ok', text: qr.usingSample ? 'O código de exemplo lê normalmente com este visual.' : 'Lido com sucesso: o texto decodificado é idêntico ao conteúdo.' }, different: { level: 'bad', text: `Lê, mas devolve outro texto: "${qr.verify.text.slice(0, 80)}". Revise o conteúdo.` }, fail: { level: 'bad', text: 'Não consegui ler este código. Aumente o contraste, a margem ou volte para formas mais simples.' } }[qr.verify.state];
+  if (verifyItem) items.push(verifyItem);
+  for (const entry of qrR.assess(qr.design, info, { exportPx: qr.exportFormat === 'svg' ? 2048 : qr.exportWidth, moduleCanvas: render.module.size, canvasWidth: render.width, printMm: qrPrintWidthMm() })) items.push(entry);
+  for (const message of payload.warnings) items.push({ level: 'warn', text: message });
+  qrEl.checks.replaceChildren(...items.map((item) => {
+    const li = document.createElement('li'); li.className = `qr-check ${item.level}`;
+    const icon = document.createElement('span'); icon.className = 'qr-check-icon';
+    icon.innerHTML = `<svg class="i i-xs" aria-hidden="true"><use href="#i-${item.level === 'ok' ? 'check' : item.level === 'info' ? 'info' : 'alert'}"/></svg>`;
+    const text = document.createElement('span'); text.textContent = item.text;
+    li.append(icon, text); return li;
+  }));
+  const rows = [
+    ['Tipo', QR_TYPE_NAMES[qr.design.type]], ['Versão', `${info.version} (${info.size}×${info.size} módulos)`], ['Correção de erros', `${info.ecl} · ${{ L: '7%', M: '15%', Q: '25%', H: '30%' }[info.ecl]}`],
+    ['Máscara', String(info.mask)], ['Conteúdo', `${qr.payload.text ? info.bytes : 0} bytes`], ['Tela', `${render.width} × ${render.height}`]
+  ];
+  qrEl.info.replaceChildren(...rows.flatMap(([term, value]) => { const dt = document.createElement('dt'); dt.textContent = term; const dd = document.createElement('dd'); dd.className = 'num'; dd.textContent = value; return [dt, dd]; }));
+  qrEl.statsMain.textContent = qr.usingSample ? 'Exemplo' : `Versão ${info.version} · ${info.size}×${info.size}`;
+  qrEl.statsDetail.textContent = qr.usingSample ? 'Preencha o conteúdo na aba Conteúdo' : `${QR_TYPE_NAMES[qr.design.type]} · correção ${info.ecl} · ${qr.payload.text.length} caracteres`;
+  qrEl.exportNote.textContent = qr.exportFormat === 'svg' ? 'SVG é vetorial: nenhuma resolução a escolher. A fonte Inter vai embutida; outras fontes dependem do computador que abrir o arquivo.'
+    : qr.exportFormat === 'pdf' ? `PDF com a página em ${qrPrintWidthMm()} × ${Math.round(qrPrintWidthMm() * render.height / render.width)} mm e a arte em ${qr.exportWidth} px.` : `${qr.exportWidth} × ${Math.round(qr.exportWidth * render.height / render.width)} px, ${qr.design.layout.id === 'plain' && qr.design.background.mode === 'transparent' ? 'com fundo transparente' : 'com o fundo do desenho'}.`;
+  qrEl.widthField.classList.toggle('hidden', qr.exportFormat === 'svg');
+  qrUpdateStatusChip();
+}
+
+function qrUpdateStatusChip() {
+  const state = qr.verify.state;
+  const map = { idle: ['chip', qr.usingSample ? 'exemplo' : 'pronto'], testing: ['chip chip-accent', 'testando leitura…'], ok: ['chip chip-ok', qr.usingSample ? 'exemplo · lê' : '✓ lê corretamente'], different: ['chip chip-err', 'texto divergente'], fail: ['chip chip-err', '✗ não consegui ler'] };
+  const [className, text] = qr.matrixError ? ['chip chip-err', 'conteúdo grande demais'] : map[state];
+  qrEl.status.className = className; qrEl.status.textContent = text;
+}
+
+/* ───────── raster, verify, export ───────── */
+async function qrRaster(width) {
+  const { svg, width: baseW, height: baseH } = qr.render;
+  const limit = 8192;
+  let scale = width / baseW;
+  if (baseH * scale > limit) scale = limit / baseH;
+  const outW = Math.max(16, Math.round(baseW * scale));
+  const outH = Math.max(16, Math.round(baseH * scale));
+  const image = new Image();
+  image.src = qrSvgUrl(svg);
+  await image.decode();
+  const canvas = document.createElement('canvas');
+  canvas.width = outW; canvas.height = outH;
+  canvas.getContext('2d').drawImage(image, 0, 0, outW, outH);
+  const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+  if (!blob) throw new Error('Não foi possível gerar a imagem. Tente um tamanho menor.');
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function qrScheduleVerify() {
+  clearTimeout(qr.verifyTimer);
+  qr.verify = { state: qr.matrixError ? 'idle' : 'testing', text: '' };
+  qrUpdateStatusChip();
+  qr.verifyTimer = setTimeout(qrVerify, 550);
+}
+async function qrVerify(explicit) {
+  if (!qr.render || qr.matrixError) return;
+  const seq = ++qr.verifySeq;
+  const expected = qr.usingSample ? 'https://arcxp.online' : qr.payload.text;
+  try {
+    const bytes = await qrRaster(900);
+    const result = await window.arc.qrVerify(bytes);
+    if (seq !== qr.verifySeq) return;
+    const same = (value) => String(value).replace(/\r\n/g, '\n') === String(expected).replace(/\r\n/g, '\n');
+    qr.verify = result.ok ? (same(result.text) ? { state: 'ok', text: result.text } : { state: 'different', text: result.text }) : { state: 'fail', text: '' };
+  } catch (error) {
+    if (seq !== qr.verifySeq) return;
+    qr.verify = { state: 'idle', text: '' };
+    if (explicit) showPasteToast(qrErrorText(error), 'error');
+  }
+  qrUpdateSide();
+  if (explicit === true) showPasteToast(qr.verify.state === 'ok' ? 'Leitura confirmada: o código lê e devolve o conteúdo certo.' : 'A leitura falhou ou divergiu. Veja os avisos ao lado.', qr.verify.state === 'ok' ? 'success' : 'error');
+}
+
+async function qrSave() {
+  if (!qr.payload.text || !qr.render) return;
+  const format = qr.exportFormat;
+  const baseName = `qrcode-${qr.design.type}`;
+  try {
+    let saved = null;
+    if (format === 'svg') saved = await window.arc.qrSave({ format, data: qr.render.svg, suggestedName: baseName });
+    else {
+      const bytes = await qrRaster(format === 'pdf' ? Math.min(qr.exportWidth, 4096) : qr.exportWidth);
+      const widthMm = qrPrintWidthMm();
+      const background = qr.design.layout.id === 'plain' ? qr.design.background.c1 : qr.design.layout.bg.c1;
+      saved = await window.arc.qrSave({ format, data: bytes, suggestedName: baseName, widthMm, heightMm: widthMm * qr.render.height / qr.render.width, background });
+    }
+    if (saved) showPasteToast(`QR Code salvo em ${saved}`);
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+async function qrCopy() {
+  if (!qr.payload.text || !qr.render) return;
+  try {
+    const ok = await window.arc.qrCopyImage(await qrRaster(Math.min(qr.exportWidth, 2048)));
+    showPasteToast(ok ? 'Imagem copiada: cole em qualquer lugar.' : 'Não foi possível copiar a imagem.', ok ? 'success' : 'error');
+    if (ok) { const label = qrEl.copy.querySelector('span'); label.textContent = 'Copiado'; setTimeout(() => { label.textContent = 'Copiar imagem'; }, 1600); }
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+
+/* ───────── assets ───────── */
+async function qrLoadAssets(announce) {
+  try {
+    const loaded = await window.arc.qrAssets();
+    const keep = Object.fromEntries(Object.entries(qr.assets.art).filter(([id]) => id.startsWith('custom-')));
+    qr.assets.art = { ...Object.fromEntries(loaded.art.map((item) => [item.id, item])), ...keep };
+    qr.assets.inter = loaded.inter || '';
+    qr.assets.artDirectory = loaded.artDirectory || '';
+    const have = loaded.art.length;
+    if (qrEl.artNote) qrEl.artNote.textContent = have ? `${have} de ${qrT.ART.length} artes encontradas. Coloque novos arquivos PNG/WebP/JPG (nome = id da arte) na pasta de artes e clique em "Recarregar artes". Veja docs/QR-CREATIVOS.md.` : `Nenhuma arte encontrada ainda (0 de ${qrT.ART.length}). Os modelos usam decoração vetorial até você adicionar as imagens: veja docs/QR-CREATIVOS.md.`;
+    qr.galleries = { templates: '', layouts: '' };
+    qrSyncAllControls(); qrRenderGalleriesIfVisible(); qrScheduleRender();
+    if (announce) showPasteToast(have ? `${have} artes carregadas.` : 'Nenhuma arte encontrada na pasta.');
+  } catch (error) { if (announce) showPasteToast(qrErrorText(error), 'error'); }
+}
+
+/* ───────── persistence ───────── */
+let qrSaveTimer = 0;
+function qrScheduleSave() { clearTimeout(qrSaveTimer); qrSaveTimer = setTimeout(() => { if (settingsState.ready) scheduleOptionsSave(); }, 300); }
+function qrCollectSettings() {
+  const design = qrR.clone(qr.design);
+  return { design: JSON.stringify(design), templates: JSON.stringify(qr.custom), exportFormat: qr.exportFormat, exportWidth: qr.exportWidth, printMm: qr.printMm };
+}
+function qrLoadSettings(saved) {
+  if (!saved) return;
+  try { if (saved.design) qr.design = qrR.sanitizeDesign(JSON.parse(saved.design)); } catch { /* corrupt design: keep defaults */ }
+  try {
+    const list = JSON.parse(saved.templates || '[]');
+    qr.custom = Array.isArray(list) ? list.filter((item) => item && typeof item.id === 'string' && typeof item.name === 'string').slice(-40).map((item) => ({ id: item.id.slice(0, 40), name: item.name.slice(0, 40), design: qrR.sanitizeDesign(item.design) })) : [];
+  } catch { qr.custom = []; }
+  qr.exportFormat = saved.exportFormat; qr.exportWidth = saved.exportWidth; qr.printMm = saved.printMm;
+  qrEl.width.value = String([...qrEl.width.options].some((option) => Number(option.value) === qr.exportWidth) ? qr.exportWidth : 2048);
+  qrEl.printMm.value = qr.printMm > 0 ? String(qr.printMm) : '';
+  for (const button of qrEl.formatSeg.querySelectorAll('[data-qr-format]')) button.classList.toggle('active', button.dataset.qrFormat === qr.exportFormat);
+  syncSeg(qrEl.formatSeg);
+  qr.history = [qrSnapshot()]; qr.future = [];
+  qrUpdateHistoryButtons();
+  qr.galleries = { templates: '', layouts: '' };
+  qrSyncAll();
+}
+
+/* ───────── wiring ───────── */
+qrBuildPanels();
+qrEl.tabs.addEventListener('click', (event) => { const button = event.target.closest('[data-qr-tab]'); if (button) qrShowTab(button.dataset.qrTab); });
+qrEl.paneTabs.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-qr-pane]');
+  if (!button) return;
+  qrEl.main.dataset.pane = button.dataset.qrPane === 'stage' ? 'output' : 'form';
+  for (const item of qrEl.paneTabs.querySelectorAll('[data-qr-pane]')) item.classList.toggle('active', item === button);
+  syncSeg(qrEl.paneTabs);
+});
+qrEl.formatSeg.addEventListener('click', (event) => {
+  const button = event.target.closest('[data-qr-format]');
+  if (!button) return;
+  qr.exportFormat = button.dataset.qrFormat;
+  for (const item of qrEl.formatSeg.querySelectorAll('[data-qr-format]')) item.classList.toggle('active', item === button);
+  syncSeg(qrEl.formatSeg);
+  if (qr.render) qrUpdateSide();
+  qrScheduleSave();
+});
+qrEl.width.addEventListener('change', () => { qr.exportWidth = Number(qrEl.width.value); if (qr.render) qrUpdateSide(); qrScheduleSave(); });
+qrEl.printMm.addEventListener('input', () => { const value = Math.round(Number(qrEl.printMm.value)); qr.printMm = Number.isFinite(value) && value > 0 ? Math.min(2000, value) : 0; if (qr.render) qrUpdateSide(); qrScheduleSave(); });
+qrEl.undo.addEventListener('click', qrUndo);
+qrEl.redo.addEventListener('click', qrRedo);
+qrEl.verifyBtn.addEventListener('click', () => { qr.verify = { state: 'testing', text: '' }; qrUpdateStatusChip(); qrVerify(true); });
+qrEl.copy.addEventListener('click', qrCopy);
+qrEl.save.addEventListener('click', qrSave);
+qrEl.reset.addEventListener('click', () => {
+  const type = qr.design.type;
+  qr.design = qrR.sanitizeDesign({ type });
+  qrPushHistory('reset'); qr.galleries = { templates: '', layouts: '' }; qrSyncAll();
+  showPasteToast('Estilo restaurado ao padrão.');
+});
+qrEl.view.addEventListener('keydown', (event) => {
+  const tag = event.target?.tagName;
+  const typing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if ((event.ctrlKey || event.metaKey) && !typing && event.key.toLowerCase() === 'z') { event.preventDefault(); if (event.shiftKey) qrRedo(); else qrUndo(); }
+  else if ((event.ctrlKey || event.metaKey) && !typing && event.key.toLowerCase() === 'y') { event.preventDefault(); qrRedo(); }
+  else if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); qrCopy(); }
+  else if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') { event.preventDefault(); qrSave(); }
+});
+qr.history = [qrSnapshot()];
+qrSyncAll();
+qrRefreshContentPanel();
+qrShowTab('templates');
+qrLoadAssets(false);
+qr.ready = true;
 
 function wireDropZone(element, addCallback, pathLoader = (paths) => window.arc.addPaths(paths)) {
   element.tabIndex = 0;

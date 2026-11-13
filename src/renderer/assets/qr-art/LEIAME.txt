@@ -1,0 +1,4 @@
+Artes opcionais do Gerador de QR Code (fundos, ornamentos e molduras).
+Coloque aqui arquivos PNG/WebP/JPG nomeados com o id da arte (ex.: bg-aurora.png).
+A lista completa de ids e os prompts para gerar as imagens estao em docs/QR-CREATIVOS.md.
+Tambem funciona a pasta do usuario: %APPDATA%\arc.Studio\qr-art (tem prioridade sobre esta).

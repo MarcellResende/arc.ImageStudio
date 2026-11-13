@@ -54,6 +54,11 @@
     <symbol id="i-file" viewBox="0 0 24 24"><path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/></symbol>
     <symbol id="i-wifi" viewBox="0 0 24 24"><path d="M12 20h.01M2 8.82a15 15 0 0 1 20 0M5 12.86a10 10 0 0 1 14 0M8.5 16.43a5 5 0 0 1 7 0"/></symbol>
     <symbol id="i-smartphone" viewBox="0 0 24 24"><rect width="14" height="20" x="5" y="2" rx="2"/><path d="M12 18h.01"/></symbol>
+    <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></symbol>
+    <symbol id="i-mail" viewBox="0 0 24 24"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 7l-10 7L2 7"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M12 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M3 7v6h6M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></symbol>
+    <symbol id="i-redo" viewBox="0 0 24 24"><path d="M21 7v6h-6M3 17a9 9 0 0 1 9-9 9 9 0 0 1 6 2.3l3 2.7"/></symbol>
     <symbol id="i-qr" viewBox="0 0 24 24"><rect width="5" height="5" x="3" y="3" rx="1"/><rect width="5" height="5" x="16" y="3" rx="1"/><rect width="5" height="5" x="3" y="16" rx="1"/><path d="M16 16h3v3M21 16v5M16 21h1"/></symbol>
     <symbol id="i-send" viewBox="0 0 24 24"><path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/></symbol>
   </svg>
@@ -763,10 +768,98 @@
         </div>
       </footer>
     </section>
+    <!-- ═════════ Gerador de QR Code ═════════ -->
+    <section id="qr-generator-view" class="tool-view hidden" role="tabpanel">
+      <div class="tool-body">
+        <div class="tool-main pane pg-main" id="qr-main" data-pane="form">
+          <div class="pg-tabs seg seg-block" id="qr-pane-tabs" role="group" aria-label="Alternar entre ajustes e prévia">
+            <span class="seg-thumb" aria-hidden="true"></span>
+            <button type="button" class="seg-item active" data-qr-pane="form">Ajustes</button>
+            <button type="button" class="seg-item" data-qr-pane="stage">Prévia</button>
+          </div>
+          <div class="pg-split">
+            <div class="pg-form qr-form">
+              <div class="seg seg-block qr-tabs" id="qr-tabs" role="tablist" aria-label="Seções do gerador">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item active" role="tab" data-qr-tab="templates">Modelos</button>
+                <button type="button" class="seg-item" role="tab" data-qr-tab="content">Conteúdo</button>
+                <button type="button" class="seg-item" role="tab" data-qr-tab="code">Código</button>
+                <button type="button" class="seg-item" role="tab" data-qr-tab="logo">Logo</button>
+                <button type="button" class="seg-item" role="tab" data-qr-tab="frame">Moldura</button>
+                <button type="button" class="seg-item" role="tab" data-qr-tab="texts">Textos</button>
+              </div>
+              <div class="qr-panels" id="qr-panels"></div>
+            </div>
+
+            <div class="pg-output-col qr-stage-col">
+              <div class="pg-output-head">
+                <strong>Prévia</strong>
+                <div class="qr-head-actions">
+                  <button id="qr-undo" class="btn btn-sm btn-ghost qr-icon-btn" type="button" title="Desfazer (Ctrl + Z)" aria-label="Desfazer" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-undo"/></svg></button>
+                  <button id="qr-redo" class="btn btn-sm btn-ghost qr-icon-btn" type="button" title="Refazer (Ctrl + Y)" aria-label="Refazer" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-redo"/></svg></button>
+                  <span id="qr-status" class="chip">preparando</span>
+                </div>
+              </div>
+              <div class="pg-output-wrap qr-stage" id="qr-stage">
+                <img id="qr-preview" class="qr-preview" alt="Prévia do QR Code" draggable="false">
+                <p id="qr-stage-note" class="qr-stage-note hidden"></p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <aside class="tool-side pane" aria-label="Qualidade e exportação">
+          <section class="side-sec">
+            <h3 class="side-title">Leitura e qualidade</h3>
+            <ul id="qr-checks" class="qr-checks"></ul>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Este código</h3>
+            <dl id="qr-info" class="qr-info"></dl>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Exportar</h3>
+            <div class="field"><span>Formato</span>
+              <div id="qr-format-seg" class="seg seg-block" role="group" aria-label="Formato do arquivo">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item active" data-qr-format="png">PNG</button>
+                <button type="button" class="seg-item" data-qr-format="svg">SVG</button>
+                <button type="button" class="seg-item" data-qr-format="pdf">PDF</button>
+              </div>
+            </div>
+            <label class="field" id="qr-width-field"><span>Largura da imagem</span>
+              <select id="qr-export-width">
+                <option value="512">512 px (miniatura)</option><option value="1024">1024 px</option><option value="2048" selected>2048 px (padrão)</option>
+                <option value="3072">3072 px</option><option value="4096">4096 px (impressão grande)</option><option value="6144">6144 px</option>
+              </select>
+            </label>
+            <label class="field"><span>Largura impressa <small>mm, para o aviso de tamanho e o PDF</small></span>
+              <input id="qr-print-mm" type="number" min="0" max="2000" step="1" placeholder="Automático">
+            </label>
+            <p id="qr-export-note" class="pg-attach-note"></p>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Documento</h3>
+            <button id="qr-reset" class="btn btn-sm btn-ghost btn-danger" type="button">Restaurar estilo padrão</button>
+          </section>
+        </aside>
+      </div>
+      <footer class="dock glass pg-dock">
+        <div class="dock-summary pg-stats"><strong id="qr-stats-main" class="num">—</strong><small id="qr-stats-detail">Escolha um modelo ou preencha o conteúdo</small></div>
+        <div class="pg-actions">
+          <button id="qr-verify" class="btn btn-lg btn-ghost" type="button"><svg class="i i-sm" aria-hidden="true"><use href="#i-qr"/></svg>Testar leitura</button>
+          <button id="qr-copy" class="btn btn-lg" type="button" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-copy"/></svg><span>Copiar imagem</span></button>
+          <button id="qr-save" class="btn btn-primary btn-lg" type="button" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-download"/></svg>Salvar QR Code</button>
+        </div>
+      </footer>
+    </section>
   </div>
   <script src="catalog.js"></script>
   <script src="prompt-engine.js"></script>
   <script src="claude-md-engine.js"></script>
+  <script src="qr-payload.js"></script>
+  <script src="qr-render.js"></script>
+  <script src="qr-templates.js"></script>
   <script src="nav.js"></script>
   <script src="app.js"></script>
 </body>
