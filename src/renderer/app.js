@@ -1670,6 +1670,8 @@ function collectOptions() {
       fileBudget: Number(pg.fileBudget.value)
     },
     qrGen: qrCollectSettings(),
+    fileHash: { algorithms: [...fh.algos], uppercase: fh.upper },
+    units: ucCollectSettings(),
     claudeMd: { language: claudeMd.language, detail: cm.detail.value, includeExisting: cm.includeExisting.checked, premisesOff: claudeMd.premisesOff }
   };
 }
@@ -1748,6 +1750,10 @@ async function loadSettings() {
     syncPromptSegments(); renderPromptGen();
 
     qrLoadSettings(settings.qrGen);
+    fh.algos = new Set(settings.fileHash.algorithms); fh.upper = settings.fileHash.uppercase; fhEl.upper.checked = fh.upper;
+    if (fh.available.length) { fh.algos = new Set([...fh.algos].filter((id) => fh.available.some((item) => item.id === id))); if (!fh.algos.size) fh.algos.add(fh.available[0].id); }
+    fhRenderAlgos(); fhRender();
+    ucLoadSettings(settings.units);
 
     const m = settings.claudeMd;
     claudeMd.premisesOff = [...m.premisesOff]; cm.detail.value = m.detail; cm.includeExisting.checked = m.includeExisting;
@@ -2634,7 +2640,7 @@ function qrChange(path, value, group) {
   qrR.setPath(qr.design, path, value);
   qr.design = qrR.sanitizeDesign(qr.design);
   qrPushHistory(group || path);
-  qrUpdateVisibility();
+  qrSyncAllControls(); // keeps segmented buttons, visibility and linked values in step with the design
   qrAfterDesign(path);
 }
 function qrAfterDesign(path = '') {
@@ -3155,6 +3161,577 @@ qrRefreshContentPanel();
 qrShowTab('templates');
 qrLoadAssets(false);
 qr.ready = true;
+
+/* ───────── File hashes ─────────
+   Streaming and algorithms live in the main process (src/hasher.mjs). This block lists files, shows progress, compares with an
+   expected hash or a checksum file, spots identical files and writes checksum files. Only the algorithm choice is saved. */
+const fh = {
+  files: [], algos: new Set(['sha256']), available: [], mode: 'files', running: false, upper: false, expected: '', sums: null, order: [], nextId: 1,
+  textTimer: 0, textSeq: 0, textBytes: 0, textHashes: null, progressFrame: 0, rows: new Map(), done: 0
+};
+const fhEl = {
+  view: $('#file-hash-view'), modeSeg: $('#fh-mode-seg'), note: $('#fh-note'), filesPane: $('#fh-files-pane'), textPane: $('#fh-text-pane'), drop: $('#fh-drop'), list: $('#fh-list'),
+  pickFiles: $('#fh-pick-files'), pickFolder: $('#fh-pick-folder'), text: $('#fh-text'), textOut: $('#fh-text-out'), algos: $('#fh-algos'), expected: $('#fh-expected'), compare: $('#fh-compare-result'),
+  verifySums: $('#fh-verify-sums'), clearSums: $('#fh-clear-sums'), sumsNote: $('#fh-sums-note'), saveAlgo: $('#fh-save-algo'), saveSums: $('#fh-save-sums'), upper: $('#fh-upper'),
+  statsMain: $('#fh-stats-main'), statsDetail: $('#fh-stats-detail'), clear: $('#fh-clear'), copy: $('#fh-copy'), cancel: $('#fh-cancel'), run: $('#fh-run')
+};
+const FH_RENDER_LIMIT = 400;
+const FH_LENGTH_TO_ALGO = { 8: 'crc32', 32: 'md5', 40: 'sha1', 64: 'sha256', 96: 'sha384', 128: 'sha512' };
+const FH_PREFERENCE = ['sha256', 'sha512', 'sha384', 'sha1', 'md5', 'crc32'];
+const fhLabel = (id) => (fh.available.find((item) => item.id === id) || { label: id.toUpperCase() }).label;
+const fhShow = (hex) => (fh.upper ? hex.toUpperCase() : hex);
+const fhNormalize = (value) => String(value || '').trim().replace(/^0x/i, '').replace(/[\s:_-]/g, '').toLowerCase();
+
+function fhAddCollected(result) {
+  if (!result) return;
+  const have = new Set(fh.files.map((file) => file.path.toLowerCase()));
+  let added = 0;
+  for (const file of result.files) {
+    if (have.has(file.path.toLowerCase())) continue;
+    fh.files.push({ id: fh.nextId++, path: file.path, name: file.name, relative: file.relative, size: file.size, status: 'idle', progress: 0, hashes: null, error: '', expectedCheck: '', sumsCheck: '', dup: 0 });
+    added += 1;
+  }
+  const notes = [];
+  if (!added && result.files.length) notes.push('Esses arquivos já estavam na lista.');
+  if (result.skipped.length) notes.push(`${result.skipped.length} item(ns) ignorado(s): ${[...new Set(result.skipped.map((item) => item.reason))].join('; ')}.`);
+  if (result.truncated) notes.push('A pasta tem arquivos demais: só os primeiros 50.000 foram listados.');
+  fhEl.note.textContent = notes.join(' ');
+  fhEvaluate();
+  fhRender();
+}
+
+/* ───── checks: expected hash, checksum file, identical files ───── */
+function fhEvaluate() {
+  for (const file of fh.files) { file.expectedCheck = ''; file.sumsCheck = ''; file.dup = 0; }
+  // expected hash
+  const hex = fhNormalize(fh.expected);
+  let message = '';
+  let tone = '';
+  if (hex) {
+    const algo = FH_LENGTH_TO_ALGO[hex.length];
+    if (!/^[0-9a-f]+$/.test(hex) || !algo) { message = 'Isso não parece um hash. Aceito CRC32 (8), MD5 (32), SHA-1 (40), SHA-256 (64), SHA-384 (96) e SHA-512 (128 dígitos).'; tone = 'warn'; }
+    else {
+      const computed = fh.files.filter((file) => file.hashes && file.hashes[algo]);
+      if (!computed.length) { message = fh.algos.has(algo) ? `É um hash ${fhLabel(algo)}. Calcule os hashes para comparar.` : `É um hash ${fhLabel(algo)}: marque esse algoritmo ao lado e calcule.`; tone = 'info'; }
+      else {
+        let matches = 0;
+        for (const file of computed) { const ok = file.hashes[algo] === hex; file.expectedCheck = ok ? 'match' : 'mismatch'; if (ok) matches += 1; }
+        if (matches) for (const file of computed) if (file.expectedCheck === 'mismatch') file.expectedCheck = ''; // only the odd one out matters when something matches
+        if (matches) { message =`✓ Confere (${fhLabel(algo)}): ${computed.filter((file) => file.expectedCheck === 'match').slice(0, 3).map((file) => file.name).join(', ')}${matches > 3 ? ` e mais ${matches - 3}` : ''}.`; tone = 'ok'; }
+        else { message = `✗ Nenhum arquivo confere com esse hash ${fhLabel(algo)}. O arquivo pode estar corrompido, incompleto ou ser outro.`; tone = 'bad'; }
+      }
+    }
+  }
+  fhEl.compare.textContent = message;
+  fhEl.compare.className = `fh-compare ${tone}`;
+
+  // checksum file
+  if (fh.sums) {
+    const byPath = new Map();
+    const byName = new Map();
+    for (const entry of fh.sums.entries) {
+      const key = entry.name.replace(/\\/g, '/').replace(/^\.\//, '').toLowerCase();
+      byPath.set(key, entry);
+      byName.set(key.split('/').pop(), entry);
+    }
+    const used = new Set();
+    let ok = 0; let bad = 0; let none = 0; let pending = 0;
+    for (const file of fh.files) {
+      const entry = byPath.get(file.relative.toLowerCase()) || byName.get(file.name.toLowerCase());
+      if (!entry) { file.sumsCheck = 'nosum'; none += 1; continue; }
+      used.add(entry);
+      if (!file.hashes || !file.hashes[entry.algorithm]) { pending += 1; continue; }
+      file.sumsCheck = file.hashes[entry.algorithm] === entry.hash ? 'match' : 'mismatch';
+      if (file.sumsCheck === 'match') ok += 1; else bad += 1;
+    }
+    const unmatched = fh.sums.entries.filter((entry) => !used.has(entry)).length;
+    const parts = [`${fh.sums.name}: ${fh.sums.entries.length} entrada(s)`];
+    if (fh.files.length) parts.push(`${ok} confere(m)`, `${bad} diferente(s)`, `${none} sem entrada`, `${unmatched} entrada(s) sem arquivo na lista`);
+    if (pending) parts.push(`${pending} aguardando cálculo`);
+    fhEl.sumsNote.textContent = `${parts.join(' · ')}.`;
+    fhEl.sumsNote.className = `pg-attach-note ${bad ? 'fh-bad' : ok && !pending && !bad ? 'fh-ok' : ''}`;
+  } else {
+    fhEl.sumsNote.textContent = 'Aceita SHA256SUMS, .md5, .sha1 e formatos parecidos.';
+    fhEl.sumsNote.className = 'pg-attach-note';
+  }
+  fhEl.clearSums.classList.toggle('hidden', !fh.sums);
+
+  // identical files (same size and digest with the strongest algorithm every finished file shares)
+  const done = fh.files.filter((file) => file.hashes);
+  const shared = FH_PREFERENCE.find((id) => done.length > 1 && done.every((file) => file.hashes[id]));
+  if (shared) {
+    const groups = new Map();
+    for (const file of done) { const key = `${file.size}:${file.hashes[shared]}`; (groups.get(key) || groups.set(key, []).get(key)).push(file); }
+    for (const group of groups.values()) if (group.length > 1) for (const file of group) file.dup = group.length - 1;
+  }
+}
+
+/* ───── list ───── */
+function fhRowEl(file) {
+  const row = document.createElement('div');
+  row.className = `fh-row ${file.status}`; row.dataset.id = String(file.id); row.setAttribute('role', 'listitem');
+  const top = document.createElement('div'); top.className = 'fh-row-top';
+  const title = document.createElement('div'); title.className = 'fh-row-title';
+  const name = document.createElement('strong'); name.textContent = file.name; name.title = file.path;
+  const where = document.createElement('small'); where.textContent = file.relative.includes('/') ? file.relative : file.path; where.title = file.path;
+  title.append(name, where);
+  const size = document.createElement('span'); size.className = 'fh-size num'; size.textContent = formatBytes(file.size);
+  const chips = document.createElement('div'); chips.className = 'fh-chips';
+  const chip = (text, tone, title) => { const element = document.createElement('span'); element.className = `chip ${tone}`; element.textContent = text; if (title) element.title = title; chips.append(element); };
+  if (file.status === 'running') chip(`${Math.round(file.progress * 100)}%`, 'chip-accent');
+  else if (file.status === 'queued') chip('na fila', '');
+  else if (file.status === 'error') chip(file.error || 'erro', 'chip-err');
+  if (file.expectedCheck === 'match') chip('✓ confere com o hash informado', 'chip-ok');
+  if (file.expectedCheck === 'mismatch') chip('não confere com o hash informado', 'chip-err');
+  if (file.sumsCheck === 'match') chip('✓ confere com o arquivo de checksums', 'chip-ok');
+  if (file.sumsCheck === 'mismatch') chip('✗ diferente do arquivo de checksums', 'chip-err');
+  if (file.sumsCheck === 'nosum') chip('sem entrada no checksums', 'chip-warn');
+  if (file.dup) chip(`idêntico a ${file.dup} outro${file.dup > 1 ? 's' : ''}`, 'chip-accent', 'Mesmo tamanho e mesmo hash: o conteúdo é igual');
+  const remove = document.createElement('button'); remove.type = 'button'; remove.className = 'fh-remove'; remove.title = 'Tirar da lista'; remove.setAttribute('aria-label', `Tirar ${file.name} da lista`); remove.innerHTML = '<svg class="i i-xs" aria-hidden="true"><use href="#i-x"/></svg>';
+  remove.disabled = fh.running;
+  top.append(title, size, remove);
+  row.append(top);
+  if (chips.childElementCount) row.append(chips);
+  if (file.status === 'running' || file.status === 'queued') {
+    const bar = document.createElement('div'); bar.className = 'fh-bar'; const fill = document.createElement('i'); fill.dataset.percent = String(Math.round(file.progress * 100)); fill.style.width = `${Math.round(file.progress * 100)}%`; bar.append(fill); row.append(bar);
+  }
+  if (file.hashes) {
+    const list = document.createElement('div'); list.className = 'fh-hashes';
+    for (const id of FH_PREFERENCE.slice().reverse()) {
+      if (!file.hashes[id]) continue;
+      const line = document.createElement('button'); line.type = 'button'; line.className = 'fh-hash'; line.dataset.copy = fhShow(file.hashes[id]); line.title = 'Clique para copiar';
+      const label = document.createElement('span'); label.textContent = fhLabel(id);
+      const code = document.createElement('code'); code.textContent = fhShow(file.hashes[id]);
+      line.append(label, code); list.append(line);
+    }
+    row.append(list);
+  }
+  return row;
+}
+function fhRender() {
+  const fragment = document.createDocumentFragment();
+  fh.rows.clear();
+  if (!fh.files.length) {
+    const empty = document.createElement('div'); empty.className = 'fh-empty';
+    empty.innerHTML = '<svg class="i" aria-hidden="true"><use href="#i-hash"/></svg><strong>Nenhum arquivo ainda</strong><span>Arraste arquivos ou uma pasta inteira para cá, marque os algoritmos ao lado e clique em "Calcular hashes".</span>';
+    fragment.append(empty);
+  } else {
+    for (const file of fh.files.slice(0, FH_RENDER_LIMIT)) { const row = fhRowEl(file); fh.rows.set(file.id, row); fragment.append(row); }
+    if (fh.files.length > FH_RENDER_LIMIT) { const more = document.createElement('p'); more.className = 'fh-more'; more.textContent = `+ ${fh.files.length - FH_RENDER_LIMIT} arquivos não exibidos aqui (todos são calculados e entram em "Copiar tudo" e no arquivo de checksums).`; fragment.append(more); }
+  }
+  fhEl.list.replaceChildren(fragment);
+  fhUpdateDock();
+}
+function fhReplaceRow(file) {
+  const row = fh.rows.get(file.id);
+  if (!row) return;
+  const next = fhRowEl(file);
+  row.replaceWith(next);
+  fh.rows.set(file.id, next);
+}
+
+function fhNeeds(file) { return !file.hashes || [...fh.algos].some((id) => !file.hashes[id]); }
+function fhUpdateDock() {
+  const total = fh.files.length;
+  const bytes = fh.files.reduce((sum, file) => sum + file.size, 0);
+  const finished = fh.files.filter((file) => file.hashes).length;
+  const failed = fh.files.filter((file) => file.status === 'error').length;
+  const inText = fh.mode === 'text';
+  fhEl.run.classList.toggle('hidden', inText || fh.running);
+  fhEl.cancel.classList.toggle('hidden', inText || !fh.running);
+  fhEl.clear.classList.toggle('hidden', inText);
+  fhEl.clear.disabled = fh.running;
+  fhEl.run.disabled = !fh.files.some(fhNeeds) || fh.running;
+  fhEl.run.querySelector('span').textContent = fh.files.some((file) => file.hashes) && fh.files.some(fhNeeds) ? 'Calcular o que falta' : 'Calcular hashes';
+  fhEl.copy.disabled = inText ? !fh.textHashes : finished === 0;
+  fhEl.saveSums.disabled = finished === 0 || fh.running;
+  if (inText) {
+    fhEl.statsMain.textContent = fh.textHashes ? `${fh.textBytes} byte${fh.textBytes === 1 ? '' : 's'}` : 'Texto';
+    fhEl.statsDetail.textContent = fh.textHashes ? `${Object.keys(fh.textHashes).length} hash(es) calculado(s)` : 'Digite para calcular';
+    return;
+  }
+  if (fh.running) {
+    const active = fh.order.filter((file) => file.status === 'done' || file.status === 'error').length;
+    const current = fh.order.find((file) => file.status === 'running');
+    fhEl.statsMain.textContent = `Calculando ${Math.min(fh.order.length, active + 1)} de ${fh.order.length}`;
+    fhEl.statsDetail.textContent = current ? `${current.name} · ${Math.round(current.progress * 100)}%` : 'Preparando…';
+  } else {
+    fhEl.statsMain.textContent = total ? `${total.toLocaleString('pt-BR')} arquivo${total === 1 ? '' : 's'} · ${formatBytes(bytes)}` : 'Nenhum arquivo';
+    fhEl.statsDetail.textContent = total ? `${finished} calculado${finished === 1 ? '' : 's'}${failed ? ` · ${failed} com erro` : ''}` : 'Arraste arquivos ou escolha uma pasta';
+  }
+  const options = [...new Set(fh.files.flatMap((file) => (file.hashes ? Object.keys(file.hashes) : [])))].sort((a, b) => FH_PREFERENCE.indexOf(a) - FH_PREFERENCE.indexOf(b));
+  const previous = fhEl.saveAlgo.value;
+  fhEl.saveAlgo.replaceChildren(...options.map((id) => new Option(fhLabel(id), id)));
+  if (options.includes(previous)) fhEl.saveAlgo.value = previous;
+}
+
+/* ───── running ───── */
+async function fhRun() {
+  const todo = fh.files.filter(fhNeeds);
+  if (!todo.length || fh.running) return;
+  fh.running = true; fh.order = todo;
+  for (const file of todo) { file.status = 'queued'; file.progress = 0; file.error = ''; }
+  fhRender();
+  try {
+    await window.arc.hashStart({ files: todo.map((file) => file.path), algorithms: [...fh.algos] });
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+  fh.running = false;
+  for (const file of todo) if (file.status === 'queued' || file.status === 'running') file.status = file.hashes ? 'done' : 'idle';
+  fhEvaluate(); fhRender();
+}
+function fhOnEvent(event) {
+  const file = fh.order[event.index];
+  if (event.type === 'done') { showPasteToast(event.cancelled ? 'Cálculo cancelado.' : `Pronto: ${event.done} arquivo(s) calculado(s)${event.failed ? `, ${event.failed} com erro` : ''}.`, event.failed ? 'error' : 'success'); return; }
+  if (!file) return;
+  if (event.type === 'file-start') { file.status = 'running'; file.progress = 0; fhReplaceRow(file); fhUpdateDock(); }
+  else if (event.type === 'progress') {
+    file.progress = event.total ? event.read / event.total : 1;
+    if (!fh.progressFrame) fh.progressFrame = requestAnimationFrame(() => {
+      fh.progressFrame = 0;
+      for (const item of fh.order) {
+        if (item.status !== 'running') continue;
+        const row = fh.rows.get(item.id);
+        const fill = row?.querySelector('.fh-bar i');
+        const percent = Math.round(item.progress * 100);
+        if (fill) { fill.style.width = `${percent}%`; fill.dataset.percent = String(percent); }
+        const chip = row?.querySelector('.fh-chips .chip'); if (chip) chip.textContent = `${percent}%`;
+      }
+      fhUpdateDock();
+    });
+  } else if (event.type === 'file-done') {
+    file.status = 'done'; file.progress = 1; file.size = event.size; file.hashes = { ...(file.hashes || {}), ...event.hashes };
+    fhEvaluate(); fhReplaceRow(file); fhUpdateDock();
+    for (const other of fh.order) if (other !== file && other.status === 'done') fhReplaceRow(other);
+  } else if (event.type === 'file-error') { file.status = 'error'; file.error = event.error; fhReplaceRow(file); fhUpdateDock(); }
+  else if (event.type === 'file-cancelled') { file.status = 'idle'; fhReplaceRow(file); }
+}
+
+/* ───── algorithms panel ───── */
+function fhRenderAlgos() {
+  fhEl.algos.replaceChildren(...fh.available.map((algo) => {
+    const row = document.createElement('label'); row.className = 'switch-row';
+    row.innerHTML = '<span class="switch-copy"><strong></strong><small></small></span><input type="checkbox"><span class="switch"></span>';
+    row.querySelector('strong').textContent = algo.label;
+    row.querySelector('small').textContent = `${algo.length} dígitos hexadecimais${algo.id === 'sha256' ? ' · recomendado' : algo.id === 'crc32' ? ' · só detecta erros, não é seguro' : ''}`;
+    const input = row.querySelector('input'); input.checked = fh.algos.has(algo.id); input.dataset.algo = algo.id;
+    input.addEventListener('change', () => {
+      if (input.checked) fh.algos.add(algo.id); else if (fh.algos.size > 1) fh.algos.delete(algo.id); else { input.checked = true; showPasteToast('Deixe pelo menos um algoritmo marcado.', 'error'); return; }
+      fhEvaluate(); fhRender(); fhTextSchedule(); scheduleOptionsSave();
+    });
+    return row;
+  }));
+}
+
+/* ───── text mode ───── */
+function fhTextSchedule() {
+  clearTimeout(fh.textTimer);
+  fh.textTimer = setTimeout(fhTextCompute, 130);
+}
+async function fhTextCompute() {
+  const seq = ++fh.textSeq;
+  const text = fhEl.text.value;
+  try {
+    const result = await window.arc.hashText({ text, algorithms: [...fh.algos] });
+    if (seq !== fh.textSeq) return;
+    fh.textBytes = result.bytes; fh.textHashes = result.hashes;
+  } catch (error) { if (seq !== fh.textSeq) return; fh.textBytes = 0; fh.textHashes = null; showPasteToast(qrErrorText(error), 'error'); }
+  fhRenderText();
+}
+function fhRenderText() {
+  fhEl.textOut.replaceChildren();
+  if (fh.textHashes) {
+    for (const id of FH_PREFERENCE.slice().reverse()) {
+      if (!fh.textHashes[id]) continue;
+      const line = document.createElement('button'); line.type = 'button'; line.className = 'fh-hash'; line.dataset.copy = fhShow(fh.textHashes[id]); line.title = 'Clique para copiar';
+      const label = document.createElement('span'); label.textContent = fhLabel(id);
+      const code = document.createElement('code'); code.textContent = fhShow(fh.textHashes[id]);
+      line.append(label, code); fhEl.textOut.append(line);
+    }
+  }
+  const hex = fhNormalize(fh.expected);
+  if (fh.mode === 'text' && hex && fh.textHashes) {
+    const algo = FH_LENGTH_TO_ALGO[hex.length];
+    if (algo && fh.textHashes[algo]) { fhEl.compare.textContent = fh.textHashes[algo] === hex ? `✓ Confere (${fhLabel(algo)}) com o texto.` : `✗ Não confere com o texto (${fhLabel(algo)}).`; fhEl.compare.className = `fh-compare ${fh.textHashes[algo] === hex ? 'ok' : 'bad'}`; }
+  }
+  fhUpdateDock();
+}
+
+function fhSetMode(mode) {
+  fh.mode = mode;
+  for (const button of fhEl.modeSeg.querySelectorAll('[data-fh-mode]')) button.classList.toggle('active', button.dataset.fhMode === mode);
+  syncSeg(fhEl.modeSeg);
+  fhEl.filesPane.classList.toggle('hidden', mode !== 'files');
+  fhEl.textPane.classList.toggle('hidden', mode !== 'text');
+  if (mode === 'text') { fhTextCompute(); } else { fhEvaluate(); }
+  fhUpdateDock();
+}
+
+/* ───── actions ───── */
+async function fhCopyText(text, message) {
+  let ok = false;
+  try { ok = await window.arc.writeClipboardText(text); } catch { ok = false; }
+  showPasteToast(ok ? message : 'Não foi possível copiar.', ok ? 'success' : 'error');
+}
+function fhAllAsText() {
+  if (fh.mode === 'text') return Object.entries(fh.textHashes || {}).sort((a, b) => FH_PREFERENCE.indexOf(a[0]) - FH_PREFERENCE.indexOf(b[0])).map(([id, hash]) => `${fhLabel(id)}: ${fhShow(hash)}`).join('\n');
+  return fh.files.filter((file) => file.hashes).map((file) => `${file.relative}\n${Object.keys(file.hashes).sort((a, b) => FH_PREFERENCE.indexOf(a) - FH_PREFERENCE.indexOf(b)).map((id) => `  ${fhLabel(id)}: ${fhShow(file.hashes[id])}`).join('\n')}`).join('\n\n');
+}
+async function fhPick(mode) {
+  try { fhAddCollected(await window.arc.hashSelect(mode)); } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+async function fhVerifySums() {
+  try {
+    const sums = await window.arc.hashReadSums();
+    if (!sums) return;
+    fh.sums = sums;
+    const needed = [...new Set(sums.entries.map((entry) => entry.algorithm))].filter((id) => fh.available.some((item) => item.id === id));
+    const added = needed.filter((id) => !fh.algos.has(id));
+    for (const id of added) fh.algos.add(id);
+    if (added.length) { fhRenderAlgos(); scheduleOptionsSave(); showPasteToast(`Marquei ${added.map(fhLabel).join(', ')} para bater com o arquivo. Clique em "Calcular".`); }
+    fhEvaluate(); fhRender();
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+async function fhSaveSums() {
+  const algorithm = fhEl.saveAlgo.value;
+  if (!algorithm) return;
+  try {
+    const rows = fh.files.filter((file) => file.hashes && file.hashes[algorithm]).map((file) => ({ relative: file.relative, name: file.name, hashes: { [algorithm]: file.hashes[algorithm] } }));
+    const saved = await window.arc.hashSaveSums({ rows, algorithm });
+    if (saved) showPasteToast(`Checksums salvos em ${saved}`);
+  } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+}
+function fhClear() {
+  if (fh.running) return;
+  fh.files = []; fh.sums = null; fh.expected = ''; fhEl.expected.value = ''; fhEl.note.textContent = '';
+  fhEvaluate(); fhRender();
+}
+
+/* ───── wiring ───── */
+fhEl.modeSeg.addEventListener('click', (event) => { const button = event.target.closest('[data-fh-mode]'); if (button) fhSetMode(button.dataset.fhMode); });
+fhEl.pickFiles.addEventListener('click', () => fhPick('files'));
+fhEl.pickFolder.addEventListener('click', () => fhPick('folder'));
+fhEl.drop.addEventListener('keydown', (event) => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); fhPick('files'); } });
+fhEl.run.addEventListener('click', fhRun);
+fhEl.cancel.addEventListener('click', () => { window.arc.hashCancel(); fhEl.cancel.disabled = true; setTimeout(() => { fhEl.cancel.disabled = false; }, 800); });
+fhEl.clear.addEventListener('click', fhClear);
+fhEl.copy.addEventListener('click', () => { const text = fhAllAsText(); if (text) fhCopyText(text, 'Hashes copiados.'); });
+fhEl.text.addEventListener('input', fhTextSchedule);
+fhEl.expected.addEventListener('input', () => { fh.expected = fhEl.expected.value; fhEvaluate(); if (fh.mode === 'text') fhRenderText(); else fhRender(); });
+fhEl.verifySums.addEventListener('click', fhVerifySums);
+fhEl.clearSums.addEventListener('click', () => { fh.sums = null; fhEvaluate(); fhRender(); });
+fhEl.saveSums.addEventListener('click', fhSaveSums);
+fhEl.upper.addEventListener('change', () => { fh.upper = fhEl.upper.checked; fhRender(); fhRenderText(); scheduleOptionsSave(); });
+fhEl.view.addEventListener('click', (event) => {
+  const line = event.target.closest('.fh-hash');
+  if (line) { fhCopyText(line.dataset.copy, 'Hash copiado.'); return; }
+  const remove = event.target.closest('.fh-remove');
+  if (remove && !fh.running) { const id = Number(remove.closest('.fh-row')?.dataset.id); fh.files = fh.files.filter((file) => file.id !== id); fhEvaluate(); fhRender(); }
+});
+for (const name of ['dragenter', 'dragover']) fhEl.view.addEventListener(name, (event) => { if (hasFilePayload(event) && fh.mode === 'files') { event.preventDefault(); fhEl.view.classList.add('dragging'); } });
+fhEl.view.addEventListener('dragleave', (event) => { if (!fhEl.view.contains(event.relatedTarget)) fhEl.view.classList.remove('dragging'); });
+fhEl.view.addEventListener('drop', async (event) => {
+  if (!hasFilePayload(event) || fh.mode !== 'files') return;
+  event.preventDefault(); fhEl.view.classList.remove('dragging');
+  const paths = [...event.dataTransfer.files].map((file) => window.arc.getPathForFile(file)).filter(Boolean);
+  if (!paths.length) return;
+  try { fhAddCollected(await window.arc.hashFromPaths(paths)); } catch (error) { showPasteToast(qrErrorText(error), 'error'); }
+});
+fhEl.view.addEventListener('keydown', (event) => { if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') { event.preventDefault(); if (fh.mode === 'files') fhRun(); } });
+window.arc.onHashEvent(fhOnEvent);
+(async () => {
+  try { fh.available = await window.arc.hashAlgorithms(); } catch { fh.available = []; }
+  fh.algos = new Set([...fh.algos].filter((id) => fh.available.some((item) => item.id === id)));
+  if (!fh.algos.size && fh.available.length) fh.algos.add(fh.available[0].id);
+  fhRenderAlgos(); fhRender();
+})();
+
+/* ───────── Unit converter ───────── */
+const UC = window.ArcUnits;
+const uc = { touched: false, category: 'length', pairs: {}, text: '1', precision: 10, notation: 'auto', places: 4, history: [], historyTimer: 0, last: null, ready: false };
+const ucEl = {
+  view: $('#unit-converter-view'), cats: $('#uc-cats'), input: $('#uc-input'), valueLabel: $('#uc-value-label'), from: $('#uc-from'), to: $('#uc-to'), swap: $('#uc-swap'), error: $('#uc-error'),
+  result: $('#uc-result'), resultUnit: $('#uc-result-unit'), explain: $('#uc-explain'), table: $('#uc-table'), notation: $('#uc-notation'), precision: $('#uc-precision'), precisionOut: $('#uc-precision-out'),
+  precisionField: $('#uc-precision-field'), places: $('#uc-places'), placesOut: $('#uc-places-out'), placesField: $('#uc-places-field'), history: $('#uc-history'), historyClear: $('#uc-history-clear'),
+  statsMain: $('#uc-stats-main'), statsDetail: $('#uc-stats-detail'), copy: $('#uc-copy'), copyPlain: $('#uc-copy-plain'), copyTable: $('#uc-copy-table')
+};
+const ucFormat = (value) => UC.formatNumber(value, { precision: uc.precision, notation: uc.notation, places: uc.places });
+const ucGroupBits = (text, radix) => { if (radix !== 2) return text; const negative = text.startsWith('-'); const digits = negative ? text.slice(1) : text; return (negative ? '-' : '') + digits.replace(/\B(?=(\d{4})+(?!\d))/g, ' '); };
+
+function ucBuildCats() {
+  ucEl.cats.replaceChildren(...UC.CATEGORIES.map((category) => {
+    const button = document.createElement('button'); button.type = 'button'; button.className = 'uc-cat'; button.dataset.cat = category.id; button.setAttribute('role', 'tab'); button.textContent = category.label;
+    button.addEventListener('click', () => ucSetCategory(category.id));
+    return button;
+  }));
+}
+function ucFillUnits() {
+  const category = UC.categoryById(uc.category);
+  const pair = uc.pairs[category.id] || [category.from, category.to];
+  const options = category.units.map((unit) => [unit.id, `${unit.label} (${unit.symbol})`]);
+  for (const select of [ucEl.from, ucEl.to]) select.replaceChildren(...options.map(([value, text]) => new Option(text, value)));
+  ucEl.from.value = category.units.some((unit) => unit.id === pair[0]) ? pair[0] : category.from;
+  ucEl.to.value = category.units.some((unit) => unit.id === pair[1]) ? pair[1] : category.to;
+  for (const button of ucEl.cats.children) button.classList.toggle('active', button.dataset.cat === category.id);
+  ucEl.valueLabel.innerHTML = category.special ? 'Número <small>na base escolhida em "De"</small>' : 'Valor <small>aceita expressões: 2 * (3 + 4,5)</small>';
+  ucEl.input.inputMode = category.special ? 'text' : 'decimal';
+}
+function ucSetCategory(id) {
+  uc.touched = true;
+  const previous = UC.categoryById(uc.category);
+  uc.pairs[previous.id] = [ucEl.from.value, ucEl.to.value];
+  uc.category = id;
+  const category = UC.categoryById(id);
+  if (category.special && !UC.parseInteger(uc.text, 10).ok) uc.text = '255';
+  if (!category.special && !UC.parseInput(uc.text).ok) uc.text = '1';
+  ucEl.input.value = uc.text;
+  ucFillUnits(); ucRender(); ucScheduleSave();
+}
+
+function ucCompute() {
+  const category = UC.categoryById(uc.category);
+  const from = UC.unitOf(category, ucEl.from.value);
+  const to = UC.unitOf(category, ucEl.to.value);
+  if (category.special) {
+    const parsed = UC.parseInteger(uc.text, from.radix);
+    if (!parsed.ok) return { category, from, to, parsed };
+    return { category, from, to, parsed, rows: category.units.map((unit) => ({ unit, text: UC.formatInteger(parsed.value, unit.radix) })), main: UC.formatInteger(parsed.value, to.radix) };
+  }
+  const parsed = UC.parseInput(uc.text);
+  if (!parsed.ok) return { category, from, to, parsed };
+  const rows = UC.convertAll(category.id, parsed.value, from.id).map((entry) => ({ unit: UC.unitOf(category, entry.id), value: entry.value }));
+  return { category, from, to, parsed, rows, value: UC.convert(category.id, parsed.value, from.id, to.id) };
+}
+function ucRender() {
+  const state = ucCompute();
+  uc.last = state;
+  const { category, from, to, parsed } = state;
+  ucEl.error.classList.toggle('hidden', parsed.ok || parsed.empty);
+  ucEl.error.textContent = parsed.ok || parsed.empty ? '' : parsed.error;
+  ucEl.input.classList.toggle('invalid', !parsed.ok && !parsed.empty);
+  ucEl.table.replaceChildren();
+  if (!parsed.ok) {
+    ucEl.result.textContent = '—'; ucEl.resultUnit.textContent = ''; ucEl.explain.textContent = parsed.empty ? 'Digite um valor para converter.' : '';
+    ucEl.statsMain.textContent = '—'; ucEl.statsDetail.textContent = '';
+    return;
+  }
+  if (category.special) {
+    ucEl.result.textContent = ucGroupBits(state.main, to.radix); ucEl.resultUnit.textContent = to.symbol;
+    ucEl.explain.textContent = `${uc.text.trim()} (base ${from.radix}) = ${ucGroupBits(state.main, to.radix)} (base ${to.radix})${from.radix !== 10 && to.radix !== 10 ? ` = ${UC.formatInteger(parsed.value, 10)} (base 10)` : ''}`;
+    ucEl.statsMain.textContent = `${uc.text.trim()}${from.symbol} = ${ucGroupBits(state.main, to.radix)}${to.symbol}`; ucEl.statsDetail.textContent = category.label;
+    for (const row of state.rows) ucEl.table.append(ucTableRow(row.unit, ucGroupBits(row.text, row.unit.radix), row.unit.id === from.id, row.unit.id === to.id, row.text));
+  } else {
+    const text = ucFormat(state.value);
+    ucEl.result.textContent = text; ucEl.resultUnit.textContent = to.symbol;
+    const isExpression = !/^-?[\d.]*,?\d*(?:e[+-]?\d+)?$/i.test(uc.text.trim().replace(/\s/g, ''));
+    const one = UC.convert(category.id, 1, from.id, to.id);
+    ucEl.explain.textContent = `${isExpression ? `${uc.text.trim()} = ${ucFormat(parsed.value)} ${from.symbol} · ` : ''}${category.id === 'temperature' || category.id === 'fuel' ? `${ucFormat(parsed.value)} ${from.symbol} → ${text} ${to.symbol}` : `1 ${from.symbol} = ${ucFormat(one)} ${to.symbol}`}`;
+    ucEl.statsMain.textContent = `${ucFormat(parsed.value)} ${from.symbol} = ${text} ${to.symbol}`; ucEl.statsDetail.textContent = category.label;
+    for (const row of state.rows) ucEl.table.append(ucTableRow(row.unit, ucFormat(row.value), row.unit.id === from.id, row.unit.id === to.id, UC.plainNumber(row.value)));
+  }
+  ucScheduleHistory();
+}
+function ucTableRow(unit, text, isFrom, isTo, copyValue) {
+  const row = document.createElement('button'); row.type = 'button'; row.className = `uc-row-item${isFrom ? ' from' : ''}${isTo ? ' to' : ''}`; row.dataset.copy = copyValue; row.dataset.unit = unit.id; row.setAttribute('role', 'listitem');
+  const name = document.createElement('span'); name.className = 'uc-unit-name'; name.textContent = unit.label;
+  const value = document.createElement('span'); value.className = 'uc-unit-value num'; value.textContent = `${text} ${unit.symbol}`;
+  row.append(name, value);
+  return row;
+}
+
+/* history + persistence */
+function ucScheduleHistory() {
+  clearTimeout(uc.historyTimer);
+  if (!uc.touched) return;
+  uc.historyTimer = setTimeout(ucPushHistory, 1600);
+}
+function ucPushHistory() {
+  const state = uc.last;
+  if (!uc.touched || !state || !state.parsed.ok) return;
+  const text = state.category.special ? ucGroupBits(state.main, state.to.radix) : ucFormat(state.value);
+  const entry = { cat: state.category.id, text: uc.text.trim(), from: state.from.id, to: state.to.id, result: `${text} ${state.to.symbol}`, fromSymbol: state.from.symbol };
+  const key = (item) => `${item.cat}|${item.text}|${item.from}|${item.to}`;
+  uc.history = [entry, ...uc.history.filter((item) => key(item) !== key(entry))].slice(0, 12);
+  ucRenderHistory();
+}
+function ucRenderHistory() {
+  ucEl.history.replaceChildren(...uc.history.map((entry, index) => {
+    const li = document.createElement('li'); const button = document.createElement('button'); button.type = 'button'; button.dataset.index = String(index);
+    const left = document.createElement('span'); left.textContent = `${entry.text} ${entry.fromSymbol}`; const right = document.createElement('strong'); right.className = 'num'; right.textContent = `= ${entry.result}`;
+    button.append(left, right); li.append(button); return li;
+  }));
+  if (!uc.history.length) { const li = document.createElement('li'); li.className = 'uc-history-empty'; li.textContent = 'As conversões que você faz aparecem aqui.'; ucEl.history.append(li); }
+}
+let ucSaveTimer = 0;
+function ucScheduleSave() { clearTimeout(ucSaveTimer); ucSaveTimer = setTimeout(() => { if (settingsState.ready) scheduleOptionsSave(); }, 300); }
+function ucCollectSettings() {
+  const pairs = { ...uc.pairs, [uc.category]: [ucEl.from.value, ucEl.to.value] };
+  return { category: uc.category, precision: uc.precision, notation: uc.notation, places: uc.places, pairs: JSON.stringify(pairs) };
+}
+function ucLoadSettings(saved) {
+  if (!saved) return;
+  uc.category = UC.categoryById(saved.category).id;
+  uc.precision = saved.precision; uc.notation = saved.notation; uc.places = saved.places;
+  try { const pairs = JSON.parse(saved.pairs || '{}'); uc.pairs = pairs && typeof pairs === 'object' ? pairs : {}; } catch { uc.pairs = {}; }
+  uc.text = UC.categoryById(uc.category).special ? '255' : '1'; ucEl.input.value = uc.text;
+  ucSyncOptions(); ucFillUnits(); ucRender();
+}
+function ucSyncOptions() {
+  ucEl.precision.value = uc.precision; ucEl.precisionOut.textContent = String(uc.precision); setRangeFill(ucEl.precision);
+  ucEl.places.value = uc.places; ucEl.placesOut.textContent = String(uc.places); setRangeFill(ucEl.places);
+  for (const button of ucEl.notation.querySelectorAll('[data-notation]')) button.classList.toggle('active', button.dataset.notation === uc.notation);
+  syncSeg(ucEl.notation);
+  ucEl.precisionField.classList.toggle('hidden', uc.notation === 'fixed');
+  ucEl.placesField.classList.toggle('hidden', uc.notation !== 'fixed');
+}
+
+/* actions */
+function ucResultText(plain) {
+  const state = uc.last;
+  if (!state || !state.parsed.ok) return '';
+  if (state.category.special) return plain ? state.main : `${ucGroupBits(state.main, state.to.radix)} ${state.to.symbol}`;
+  return plain ? UC.plainNumber(state.value) : `${ucFormat(state.value)} ${state.to.symbol}`;
+}
+async function ucCopy(text, message) {
+  if (!text) { showPasteToast('Não há resultado para copiar.', 'error'); return; }
+  let ok = false;
+  try { ok = await window.arc.writeClipboardText(text); } catch { ok = false; }
+  showPasteToast(ok ? message : 'Não foi possível copiar.', ok ? 'success' : 'error');
+}
+ucBuildCats();
+ucEl.input.addEventListener('input', () => { uc.touched = true; uc.text = ucEl.input.value; ucRender(); });
+ucEl.input.addEventListener('keydown', (event) => { if (event.key === 'Enter') { event.preventDefault(); ucPushHistory(); if (event.ctrlKey || event.metaKey) ucCopy(ucResultText(false), 'Resultado copiado.'); } });
+ucEl.input.addEventListener('blur', ucPushHistory);
+for (const select of [ucEl.from, ucEl.to]) select.addEventListener('change', () => { uc.touched = true; uc.pairs[uc.category] = [ucEl.from.value, ucEl.to.value]; ucRender(); ucScheduleSave(); });
+ucEl.swap.addEventListener('click', () => {
+  uc.touched = true;
+  const state = uc.last;
+  const from = ucEl.from.value; ucEl.from.value = ucEl.to.value; ucEl.to.value = from;
+  if (state && state.parsed.ok && !state.category.special) { const swapped = UC.plainNumber(state.value, 12); if (swapped) { uc.text = swapped.replace('.', ','); ucEl.input.value = uc.text; } }
+  else if (state && state.parsed.ok && state.category.special) { uc.text = state.main; ucEl.input.value = uc.text; }
+  uc.pairs[uc.category] = [ucEl.from.value, ucEl.to.value]; ucRender(); ucScheduleSave();
+});
+ucEl.notation.addEventListener('click', (event) => { const button = event.target.closest('[data-notation]'); if (!button) return; uc.notation = button.dataset.notation; ucSyncOptions(); ucRender(); ucScheduleSave(); });
+ucEl.precision.addEventListener('input', () => { uc.precision = Number(ucEl.precision.value); ucEl.precisionOut.textContent = String(uc.precision); setRangeFill(ucEl.precision); ucRender(); ucScheduleSave(); });
+ucEl.places.addEventListener('input', () => { uc.places = Number(ucEl.places.value); ucEl.placesOut.textContent = String(uc.places); setRangeFill(ucEl.places); ucRender(); ucScheduleSave(); });
+ucEl.table.addEventListener('click', (event) => { const row = event.target.closest('.uc-row-item'); if (row) ucCopy(row.dataset.copy, 'Valor copiado.'); });
+ucEl.history.addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-index]'); const entry = button && uc.history[Number(button.dataset.index)];
+  if (!entry) return;
+  uc.category = entry.cat; uc.pairs[entry.cat] = [entry.from, entry.to]; uc.text = entry.text; ucEl.input.value = entry.text;
+  ucFillUnits(); ucRender(); ucScheduleSave();
+});
+ucEl.historyClear.addEventListener('click', () => { uc.history = []; ucRenderHistory(); });
+ucEl.copy.addEventListener('click', () => ucCopy(ucResultText(false), 'Resultado copiado.'));
+ucEl.copyPlain.addEventListener('click', () => ucCopy(ucResultText(true), 'Número copiado (sem formatação).'));
+ucEl.copyTable.addEventListener('click', () => {
+  const state = uc.last;
+  if (!state || !state.parsed.ok) { showPasteToast('Não há tabela para copiar.', 'error'); return; }
+  const lines = state.category.special ? state.rows.map((row) => `${row.unit.label}: ${row.text}`) : state.rows.map((row) => `${row.unit.label} (${row.unit.symbol}): ${ucFormat(row.value)}`);
+  ucCopy(`${uc.text.trim()} ${state.from.symbol} =\n${lines.join('\n')}`, 'Tabela copiada.');
+});
+ucFillUnits(); ucSyncOptions(); ucRender(); ucRenderHistory();
+uc.ready = true;
+
 
 function wireDropZone(element, addCallback, pathLoader = (paths) => window.arc.addPaths(paths)) {
   element.tabIndex = 0;

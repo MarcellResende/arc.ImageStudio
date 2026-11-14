@@ -55,8 +55,8 @@
         { id: 'receiver', label: 'Receber', icon: 'wifi', status: 'ready', summary: 'Do celular para o PC pelo Wi-Fi', title: 'Receber arquivos', description: 'Transfira do celular pela mesma rede Wi-Fi, com os bytes e a qualidade original preservados.' },
         { id: 'sender', label: 'Enviar', icon: 'send', status: 'ready', summary: 'Do PC para outro dispositivo', title: 'Enviar arquivos', description: 'Compartilhe do PC para outro dispositivo pela rede local, sem reduzir a qualidade ou alterar os bytes.' },
         { id: 'qr-generator', label: 'Gerador de QR Code', icon: 'qr', status: 'ready', summary: 'Criar códigos QR personalizados', title: 'Gerador de QR Code', description: 'Crie QR Codes de links, Wi-Fi, contatos, Pix e mais, com formas, cores, logo, molduras e modelos prontos. Tudo no seu computador.' },
-        { id: 'file-hash', label: 'Hash de Arquivos', icon: 'hash', status: 'soon', summary: 'Calcular e comparar hashes' },
-        { id: 'unit-converter', label: 'Conversor de Unidades', icon: 'ruler', status: 'soon', summary: 'Converter medidas' }
+        { id: 'file-hash', label: 'Hash de Arquivos', icon: 'hash', status: 'ready', summary: 'Calcular e verificar hashes', title: 'Hash de Arquivos', description: 'Calcule CRC32, MD5, SHA-1, SHA-256, SHA-384 e SHA-512 de arquivos e pastas, compare com o hash publicado e verifique arquivos de checksums.' },
+        { id: 'unit-converter', label: 'Conversor de Unidades', icon: 'ruler', status: 'ready', summary: 'Converter medidas', title: 'Conversor de Unidades', description: 'Converta comprimento, massa, temperatura, área, volume, velocidade, tempo, dados, energia e mais, com expressões e todas as unidades de uma vez.' }
       ]
     }
   ];

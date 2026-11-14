@@ -17,6 +17,7 @@ import { WifiSender } from './wifi-sender.mjs';
 import { SettingsStore } from './settings.mjs';
 import { collectAttachments } from './attachments.mjs';
 import { analyzeProject } from './project-analyzer.mjs';
+import { HashJob, availableAlgorithms, collectFiles, formatChecksums, hashText, parseChecksums, sanitizeAlgorithms } from './hasher.mjs';
 import { buildPdf, createQrMatrix, decodeQr, ensureDirectory, importImageFile, listArt, pngBuffer, QR_LIMITS } from './qr.mjs';
 
 const currentDirectory = path.dirname(fileURLToPath(import.meta.url));
@@ -481,6 +482,48 @@ ipcMain.handle('claudemd:save', async (event, payload = {}) => {
   });
   if (result.canceled || !result.filePath) return null;
   await writeFile(result.filePath, `${text.replace(/\s+$/, '')}\n`, 'utf8');
+  return result.filePath;
+});
+
+/* File hashes: streaming, one job at a time. Progress goes to the window that asked. */
+const hashJob = new HashJob();
+const MAX_SUMS_BYTES = 8 * 1024 * 1024;
+ipcMain.handle('hash:algorithms', () => availableAlgorithms());
+ipcMain.handle('hash:from-paths', (_event, paths) => collectFiles(Array.isArray(paths) ? paths.slice(0, 5000) : []));
+ipcMain.handle('hash:select', async (event, mode) => {
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showOpenDialog(owner, mode === 'folder'
+    ? { title: 'Escolha a pasta para calcular os hashes', properties: ['openDirectory'] }
+    : { title: 'Escolha os arquivos', properties: ['openFile', 'multiSelections'] });
+  return result.canceled ? null : collectFiles(result.filePaths);
+});
+ipcMain.handle('hash:start', async (event, request = {}) => {
+  const files = Array.isArray(request.files) ? request.files : [];
+  return hashJob.run(files, sanitizeAlgorithms(request.algorithms), (payload) => { if (!event.sender.isDestroyed()) event.sender.send('hash:event', payload); });
+});
+ipcMain.handle('hash:cancel', () => { hashJob.cancel(); return true; });
+ipcMain.handle('hash:text', (_event, request = {}) => hashText(request.text, sanitizeAlgorithms(request.algorithms)));
+ipcMain.handle('hash:read-sums', async (event) => {
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const result = await dialog.showOpenDialog(owner, {
+    title: 'Escolha o arquivo de checksums (SHA256SUMS, .md5, .sha256…)', properties: ['openFile'],
+    filters: [{ name: 'Checksums', extensions: ['sha256', 'sha1', 'md5', 'sha512', 'sha384', 'sfv', 'txt', 'sum', 'sums'] }, { name: 'Todos os arquivos', extensions: ['*'] }]
+  });
+  if (result.canceled || !result.filePaths[0]) return null;
+  const info = await stat(result.filePaths[0]);
+  if (!info.isFile() || info.size > MAX_SUMS_BYTES) throw new Error('Arquivo de checksums inválido ou maior que 8 MB.');
+  const entries = parseChecksums(await readFile(result.filePaths[0], 'utf8'));
+  if (!entries.length) throw new Error('Não encontrei nenhum hash nesse arquivo.');
+  return { name: path.basename(result.filePaths[0]), entries };
+});
+ipcMain.handle('hash:save-sums', async (event, request = {}) => {
+  const algorithm = String(request.algorithm || '');
+  const text = formatChecksums(Array.isArray(request.rows) ? request.rows.slice(0, 50000) : [], algorithm);
+  const owner = BrowserWindow.fromWebContents(event.sender) || undefined;
+  const label = { crc32: 'CRC32', md5: 'MD5', sha1: 'SHA1', sha256: 'SHA256', sha384: 'SHA384', sha512: 'SHA512' }[algorithm] || 'HASH';
+  const result = await dialog.showSaveDialog(owner, { title: 'Salvar checksums', defaultPath: path.join(app.getPath('documents'), `${label}SUMS.txt`), filters: [{ name: 'Checksums', extensions: ['txt', 'sha256', 'md5'] }] });
+  if (result.canceled || !result.filePath) return null;
+  await writeFile(result.filePath, text, 'utf8');
   return result.filePath;
 });
 
@@ -986,6 +1029,7 @@ app.on('before-quit', (event) => {
   shutdownStarted = true;
   event.preventDefault();
   const grace = new Promise((resolve) => setTimeout(resolve, 5000));
+  hashJob.cancel();
   Promise.race([Promise.allSettled([wifiReceiver.stop(), wifiSender.stop()]), grace]).finally(() => {
     wifiReceiver.emergencyCleanup();
     settings.flushSync();

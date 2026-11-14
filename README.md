@@ -4,7 +4,7 @@
 
 # arc.Studio
 
-Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa (compressor, resizer, conversor de formatos, renomeador e limpeza de metadados), **Utilitários** já tem **Receber** e **Enviar** arquivos pela rede local e o **Gerador de QR Code**, e **IA** tem o **Prompt Gen** e o gerador de **CLAUDE.md**. PDF, Vídeo, Áudio e o restante de Utilitários têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
+Plataforma para Windows que reúne ferramentas locais organizadas por categoria. Hoje a categoria **Imagem** está completa (compressor, resizer, conversor de formatos, renomeador e limpeza de metadados), **Utilitários** já tem **Receber** e **Enviar** arquivos pela rede local , o **Gerador de QR Code**, o **Hash de Arquivos** e o **Conversor de Unidades**, e **IA** tem o **Prompt Gen** e o gerador de **CLAUDE.md**. PDF, Vídeo e Áudio têm lugar na navegação e o que ainda não existe aparece como **Em breve**. Todo o processamento é local: nenhum arquivo é enviado para a internet.
 
 ## Como usar
 
@@ -128,6 +128,30 @@ Utilitários › Gerador de QR Code cria QR Codes **totalmente personalizáveis*
 9. **Criativos opcionais:** os modelos funcionam com decoração vetorial; com imagens de fundo, ornamentos e molduras (32 artes) ficam mais ricos. Veja `docs/QR-CREATIVOS.md` (lista de artes + prompts para o ChatGPT) e coloque os arquivos na pasta de artes (Moldura › Abrir pasta de artes).
 
 O conteúdo digitado (senha do Wi-Fi, telefone, chave Pix…) **nunca é gravado**: só o visual e os seus modelos. Para impressão, use o aviso de tamanho: cada módulo precisa ter ao menos ≈ 0,4 mm; faça sempre um teste de leitura com o celular antes de imprimir em quantidade.
+
+### Hash de Arquivos
+
+Utilitários › Hash de Arquivos calcula **CRC32, MD5, SHA-1, SHA-256, SHA-384 e SHA-512** de arquivos, pastas inteiras ou texto, tudo no seu computador.
+
+1. **Arraste arquivos ou uma pasta** (ou use os botões). Pastas são lidas por dentro, sem seguir atalhos; o que não pôde ser lido aparece avisado.
+2. **Uma leitura só:** os arquivos são lidos em blocos e todos os algoritmos marcados são atualizados juntos, então arquivos de vários GB não ocupam memória e o disco é lido uma vez. Há barra de progresso por arquivo e **Cancelar**.
+3. **Compare com um hash publicado:** cole o hash esperado; o algoritmo é detectado pelo tamanho e a tela diz quais arquivos conferem (ou que nenhum confere).
+4. **Verifique um arquivo de checksums** (SHA256SUMS, .md5, .sha1, formato GNU ou BSD): cada arquivo da lista é conferido pelo nome, com contagem de conferem, diferentes, sem entrada e entradas sem arquivo.
+5. **Arquivos idênticos** (mesmo tamanho e hash) são sinalizados na lista.
+6. **Salve um arquivo de checksums** (`hash *pasta/arquivo`) para o algoritmo escolhido, copie um hash com um clique ou **copie tudo**. A aba **Texto** calcula o hash enquanto você digita (UTF-8).
+
+Só a escolha dos algoritmos é lembrada: nomes de arquivos, caminhos e hashes nunca são gravados. MD5 e SHA-1 servem para conferir downloads, mas não protegem contra adulteração intencional; CRC32 só detecta erros.
+
+### Conversor de Unidades
+
+Utilitários › Conversor de Unidades converte **15 categorias** sem internet: comprimento, massa, temperatura, área (com alqueire paulista e mineiro), volume (com xícara e colheres brasileiras), velocidade, tempo, dados (kB/MB/GB decimais e KiB/MiB/GiB binários, bits), energia, potência, pressão, ângulo, frequência, consumo (km/L, L/100 km, mpg) e **bases numéricas** (binário, octal, decimal, hexadecimal, base 32 e 36, com números enormes sem perder precisão).
+
+1. Digite o valor ou uma **expressão** (`2 * (3 + 4,5)`, `10^3`); aceita vírgula decimal e ponto de milhar (`1.234,56`). As expressões são calculadas por um interpretador próprio, nunca por `eval`.
+2. Escolha **De** e **Para**, troque com um clique, e veja **todas as unidades da categoria de uma vez** (clique numa linha para copiar).
+3. **Precisão ajustável:** notação automática, casas fixas ou científica, de 1 a 15 algarismos significativos.
+4. Histórico das últimas conversões, copiar resultado formatado, **número puro** (para planilhas e programas) ou a tabela inteira.
+
+Categoria, par de unidades de cada categoria, precisão e notação são lembrados. Moedas não entram porque as cotações mudam o tempo todo e o aplicativo não usa a internet.
 
 ## Recursos
 

@@ -22,6 +22,19 @@ contextBridge.exposeInMainWorld('arc', {
   selectProject: () => ipcRenderer.invoke('project:select'),
   analyzeProject: (folder) => ipcRenderer.invoke('project:analyze', folder),
   saveClaudeMd: (payload) => ipcRenderer.invoke('claudemd:save', payload),
+  hashAlgorithms: () => ipcRenderer.invoke('hash:algorithms'),
+  hashSelect: (mode) => ipcRenderer.invoke('hash:select', mode),
+  hashFromPaths: (paths) => ipcRenderer.invoke('hash:from-paths', paths),
+  hashStart: (request) => ipcRenderer.invoke('hash:start', request),
+  hashCancel: () => ipcRenderer.invoke('hash:cancel'),
+  hashText: (request) => ipcRenderer.invoke('hash:text', request),
+  hashReadSums: () => ipcRenderer.invoke('hash:read-sums'),
+  hashSaveSums: (request) => ipcRenderer.invoke('hash:save-sums', request),
+  onHashEvent: (callback) => {
+    const listener = (_event, data) => callback(data);
+    ipcRenderer.on('hash:event', listener);
+    return () => ipcRenderer.removeListener('hash:event', listener);
+  },
   qrMatrix: (request) => ipcRenderer.invoke('qr:matrix', request),
   qrAssets: () => ipcRenderer.invoke('qr:assets'),
   qrImportImage: (purpose) => ipcRenderer.invoke('qr:import-image', purpose),

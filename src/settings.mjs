@@ -77,6 +77,19 @@ export const SCHEMA = {
     verify: [bool, true],
     fileBudget: [int(0, 200000), 16000]
   },
+  /* File hashes: only the chosen algorithms are saved (never file names, paths or digests). */
+  fileHash: {
+    algorithms: [idList(['crc32', 'md5', 'sha1', 'sha256', 'sha384', 'sha512'], 6), ['sha256']],
+    uppercase: [bool, false]
+  },
+  /* Unit converter: last category, precision and notation. */
+  units: {
+    category: [text(24), 'length'],
+    precision: [int(1, 15), 10],
+    notation: [enumOf('auto', 'fixed', 'scientific'), 'auto'],
+    places: [int(0, 12), 4],
+    pairs: [multiline(4000), '{}']
+  },
   /* CLAUDE.md generator: only options are saved. What you type about a project stays in memory (it is project-specific). */
   claudeMd: {
     language: [enumOf('pt', 'en'), 'pt'],

@@ -853,6 +853,124 @@
         </div>
       </footer>
     </section>
+    <!-- ═════════ Hash de Arquivos ═════════ -->
+    <section id="file-hash-view" class="tool-view hidden" role="tabpanel">
+      <div class="tool-body">
+        <div class="tool-main pane fh-main">
+          <div class="fh-head">
+            <div id="fh-mode-seg" class="seg" role="group" aria-label="O que calcular">
+              <span class="seg-thumb" aria-hidden="true"></span>
+              <button type="button" class="seg-item active" data-fh-mode="files">Arquivos e pastas</button>
+              <button type="button" class="seg-item" data-fh-mode="text">Texto</button>
+            </div>
+            <span id="fh-note" class="fh-note"></span>
+          </div>
+          <div id="fh-files-pane" class="fh-pane">
+            <div id="fh-drop" class="pg-attach-drop" tabindex="0" role="group" aria-label="Arraste arquivos ou pastas aqui">
+              <svg class="i" aria-hidden="true"><use href="#i-hash"/></svg>
+              <div class="pg-attach-copy"><strong>Arraste arquivos ou pastas aqui</strong><span>os arquivos são lidos só aqui no seu computador, de uma vez só, sem carregar tudo na memória</span></div>
+              <div class="pg-attach-buttons"><button id="fh-pick-files" class="btn btn-sm btn-primary" type="button">Arquivos</button><button id="fh-pick-folder" class="btn btn-sm" type="button">Pasta</button></div>
+            </div>
+            <div id="fh-list" class="fh-list" role="list" aria-live="polite"></div>
+          </div>
+          <div id="fh-text-pane" class="fh-pane hidden">
+            <label class="field"><span>Texto <small>UTF-8; o hash muda a cada letra</small></span><textarea id="fh-text" rows="7" spellcheck="false" placeholder="Digite ou cole o texto"></textarea></label>
+            <div id="fh-text-out" class="fh-text-out"></div>
+          </div>
+        </div>
+
+        <aside class="tool-side pane" aria-label="Algoritmos e verificação">
+          <section class="side-sec">
+            <h3 class="side-title">Algoritmos</h3>
+            <div id="fh-algos" class="fh-algos"></div>
+            <p class="pg-attach-note">MD5 e SHA-1 servem para conferir downloads, mas não são seguros contra adulteração intencional: prefira SHA-256.</p>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Comparar com um hash</h3>
+            <label class="field"><span>Hash esperado <small>o algoritmo é detectado pelo tamanho</small></span><input id="fh-expected" type="text" spellcheck="false" autocomplete="off" placeholder="Cole aqui o hash publicado"></label>
+            <p id="fh-compare-result" class="fh-compare"></p>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Arquivo de checksums</h3>
+            <div class="qr-row-actions"><button id="fh-verify-sums" class="btn btn-sm" type="button">Verificar com um arquivo…</button><button id="fh-clear-sums" class="btn btn-sm btn-ghost hidden" type="button">Remover</button></div>
+            <p id="fh-sums-note" class="pg-attach-note">Aceita SHA256SUMS, .md5, .sha1 e formatos parecidos.</p>
+            <label class="field"><span>Salvar checksums em</span><select id="fh-save-algo"></select></label>
+            <button id="fh-save-sums" class="btn btn-sm" type="button" disabled>Salvar arquivo de checksums…</button>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Exibição</h3>
+            <label class="switch-row"><span class="switch-copy"><strong>Hashes em MAIÚSCULAS</strong><small>afeta a tela e o que você copia</small></span><input id="fh-upper" type="checkbox"><span class="switch"></span></label>
+          </section>
+        </aside>
+      </div>
+      <footer class="dock glass pg-dock">
+        <div class="dock-summary pg-stats"><strong id="fh-stats-main" class="num">Nenhum arquivo</strong><small id="fh-stats-detail">Arraste arquivos ou escolha uma pasta</small></div>
+        <div class="pg-actions">
+          <button id="fh-clear" class="btn btn-lg btn-ghost btn-danger" type="button">Limpar</button>
+          <button id="fh-copy" class="btn btn-lg" type="button" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-copy"/></svg>Copiar tudo</button>
+          <button id="fh-cancel" class="btn btn-lg btn-ghost hidden" type="button">Cancelar</button>
+          <button id="fh-run" class="btn btn-primary btn-lg" type="button" disabled><svg class="i i-sm" aria-hidden="true"><use href="#i-hash"/></svg><span>Calcular hashes</span></button>
+        </div>
+      </footer>
+    </section>
+
+    <!-- ═════════ Conversor de Unidades ═════════ -->
+    <section id="unit-converter-view" class="tool-view hidden" role="tabpanel">
+      <div class="tool-body">
+        <div class="tool-main pane uc-main">
+          <div id="uc-cats" class="uc-cats" role="tablist" aria-label="Categorias de unidades"></div>
+          <div class="uc-card">
+            <div class="uc-row">
+              <label class="field uc-value"><span id="uc-value-label">Valor <small>aceita expressões: 2 * (3 + 4,5)</small></span><input id="uc-input" type="text" inputmode="decimal" spellcheck="false" autocomplete="off" value="1"></label>
+              <label class="field"><span>De</span><select id="uc-from"></select></label>
+              <button id="uc-swap" class="btn btn-ghost uc-swap" type="button" title="Trocar as unidades" aria-label="Trocar as unidades"><svg class="i" aria-hidden="true"><use href="#i-convert"/></svg></button>
+              <label class="field"><span>Para</span><select id="uc-to"></select></label>
+            </div>
+            <p id="uc-error" class="uc-error hidden" role="alert"></p>
+            <div class="uc-result" aria-live="polite">
+              <output id="uc-result" class="uc-big num">—</output>
+              <span id="uc-result-unit" class="uc-unit"></span>
+            </div>
+            <p id="uc-explain" class="uc-explain"></p>
+          </div>
+          <div class="uc-table-head"><h3 class="side-title">Todas as unidades</h3><span class="uc-hint">clique numa linha para copiar</span></div>
+          <div id="uc-table" class="uc-table" role="list"></div>
+        </div>
+        <aside class="tool-side pane" aria-label="Opções e histórico">
+          <section class="side-sec">
+            <h3 class="side-title">Precisão</h3>
+            <div class="field"><span>Notação</span>
+              <div id="uc-notation" class="seg seg-block" role="group" aria-label="Notação">
+                <span class="seg-thumb" aria-hidden="true"></span>
+                <button type="button" class="seg-item active" data-notation="auto">Automática</button><button type="button" class="seg-item" data-notation="fixed">Casas fixas</button><button type="button" class="seg-item" data-notation="scientific">Científica</button>
+              </div>
+            </div>
+            <div class="field" id="uc-precision-field"><span id="uc-precision-label">Algarismos significativos</span>
+              <div class="qr-range"><input id="uc-precision" type="range" min="1" max="15" value="10" aria-labelledby="uc-precision-label"><output id="uc-precision-out" class="num">10</output></div>
+            </div>
+            <div class="field hidden" id="uc-places-field"><span>Casas decimais</span>
+              <div class="qr-range"><input id="uc-places" type="range" min="0" max="12" value="4"><output id="uc-places-out" class="num">4</output></div>
+            </div>
+          </section>
+          <section class="side-sec">
+            <div class="side-title-row"><h3 class="side-title">Histórico</h3><button id="uc-history-clear" class="btn btn-sm btn-ghost" type="button">Limpar</button></div>
+            <ul id="uc-history" class="uc-history"></ul>
+          </section>
+          <section class="side-sec">
+            <h3 class="side-title">Bom saber</h3>
+            <p class="pg-attach-note">Tudo é calculado aqui, sem internet. Moedas não entram porque as cotações mudam o tempo todo. Mês = 30,4375 dias e ano = 365,25 dias; galão e xícara variam por país, e as versões dos EUA e do Brasil são listadas separadas.</p>
+          </section>
+        </aside>
+      </div>
+      <footer class="dock glass pg-dock">
+        <div class="dock-summary pg-stats"><strong id="uc-stats-main" class="num">—</strong><small id="uc-stats-detail"></small></div>
+        <div class="pg-actions">
+          <button id="uc-copy-table" class="btn btn-lg btn-ghost" type="button">Copiar tabela</button>
+          <button id="uc-copy-plain" class="btn btn-lg" type="button">Copiar número puro</button>
+          <button id="uc-copy" class="btn btn-primary btn-lg" type="button"><svg class="i i-sm" aria-hidden="true"><use href="#i-copy"/></svg><span>Copiar resultado</span></button>
+        </div>
+      </footer>
+    </section>
   </div>
   <script src="catalog.js"></script>
   <script src="prompt-engine.js"></script>
@@ -860,6 +978,7 @@
   <script src="qr-payload.js"></script>
   <script src="qr-render.js"></script>
   <script src="qr-templates.js"></script>
+  <script src="units-engine.js"></script>
   <script src="nav.js"></script>
   <script src="app.js"></script>
 </body>
